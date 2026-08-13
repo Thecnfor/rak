@@ -133,14 +133,14 @@ infer_cfg:
     model_dir: lane_model
     port: 5001
     img_size: [128, 128]
-    run_mode: paddle
+    run_mode: trt_fp16
 
   - name: task
     infer_type: YoloeInfer
     model_dir: task2026
     port: 5002
-    img_size: [416, 416]
-    run_mode: paddle
+    img_size: [640, 640]
+    run_mode: trt_fp16
 
 # ============================================================
 # 文心一言 Access Token 配置

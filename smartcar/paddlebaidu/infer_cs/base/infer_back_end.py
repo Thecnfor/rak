@@ -17,7 +17,8 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".
 
 # 导入infer_front中的函数
 from smartcar.paddlebaidu.infer_cs.base.infer_front import get_yaml, get_path_relative
-from smartcar.paddlebaidu.paddle_jetson import YoloeInfer, LaneInfer, OCRReco
+# TRT 推理后端(运行时不再依赖 paddle)
+from smartcar.paddlebaidu.trt_backend import TrtYoloeInfer, TrtLaneInfer
 # from smartcar.whalesbot.tools.tools_class import get_yaml
 
 class InferServer:
@@ -49,30 +50,19 @@ class InferServer:
             # 添加进程
             self.threads_list.append(thread_tmp)
         
-        from smartcar.paddlebaidu.paddle_jetson import YoloeInfer, LaneInfer, OCRReco # , HummanAtrr, MotHuman
-
         InferFactory = {
-            "YoloeInfer": YoloeInfer,
-            "LaneInfer": LaneInfer,
-            "OCRReco": OCRReco,
-            # "HummanAtrr": HummanAtrr,
-            # "MotHuman": MotHuman
+            "YoloeInfer": TrtYoloeInfer,
+            "LaneInfer": TrtLaneInfer,
         }
         # 创建推理模型
         self.infer_dict = {}
 
         for conf in configs:
             InferType = InferFactory[conf['infer_type']]
-            if InferType == OCRReco :
-                if 'det_model_dir'in conf and 'rec_model_dir'  in conf:
-                    infer = InferType(conf['det_model_dir'], conf['rec_model_dir'],run_mode= conf['run_mode'])
-                else:
-                    raise InferType()
+            if 'model_dir' in conf:
+                infer = InferType(conf['model_dir'], run_mode=conf['run_mode'])
             else:
-                if 'model_dir' in conf:
-                    infer = InferType(conf['model_dir'], run_mode= conf['run_mode'])
-                else:
-                    infer = InferType(run_mode= conf['run_mode'])
+                infer = InferType(run_mode=conf['run_mode'])
             self.infer_dict[conf['name']] = infer
 
         # 创建推理模型
