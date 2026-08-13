@@ -64,10 +64,10 @@ class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
         self.car_pid_init(cfg)
         self.ring = Beep()
         self.camera_init(cfg)
-        # 侧视实时流(cam2)转发线程
-        self.start_side_stream()
         # paddle推理初始化
         self.paddle_infer_init()
+        # 侧视实时流(cam2)转发 + 持续检测线程(后端就绪后再启动, 避免空等)
+        self.start_side_stream()
         # 文心一言分析初始化
         self.ernie_bot_init()
 

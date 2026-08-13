@@ -6,11 +6,13 @@
 """
 import base64
 import difflib
+import json
 import re
 import threading
 import time
 
 import cv2
+import zmq
 from typing import List
 
 from smartcar.paddlebaidu.ernie_bot import ErnieBotWrap, OrderPrompt
@@ -20,12 +22,11 @@ from smartcar.whalesbot.tools import CountRecord, logger
 
 class PerceptionMixin:
 
-    # 侧视实时流: 始终推原始画面, 检测到新目标时短暂叠加检测框
+    # 侧视实时流: 始终推画面, 检测线程每 0.5s 跑一次检测, 有目标就叠框
     _side_stream_flag = False
-    _cam2_overlay = None  # (timestamp, image)
 
     def start_side_stream(self):
-        """启动侧视(cam2)实时流转发线程, 由 MyCar 初始化时调用。"""
+        """启动侧视(cam2)实时流 + 持续检测线程, 由 MyCar 初始化时调用。"""
         if PerceptionMixin._side_stream_flag:
             return
         PerceptionMixin._side_stream_flag = True
@@ -33,17 +34,53 @@ class PerceptionMixin:
             target=self._side_stream_loop, name="side_stream", daemon=True)
         thread.start()
 
-    def set_cam2_overlay(self, image):
-        PerceptionMixin._cam2_overlay = (time.time(), image)
+    def _side_detect_client(self):
+        """创建独立于任务检测的 ZMQ 客户端(避免共享 socket 的线程竞争)。"""
+        ctx = zmq.Context()
+        sock = ctx.socket(zmq.REQ)
+        sock.setsockopt(zmq.LINGER, 0)
+        sock.RCVTIMEO = 5000
+        sock.connect("tcp://127.0.0.1:5002")
+        try:
+            sock.send(b"ATATA")
+            sock.recv()
+        except Exception:
+            pass
+        return sock
+
+    def _side_detect(self, sock, raw):
+        """在侧视图上跑一次检测, 返回 [cls,obj,label,score, nx,ny,nw,nh] 列表。"""
+        ok, buf = cv2.imencode(".jpg", raw)
+        if not ok:
+            return []
+        sock.send(b"image" + buf.tobytes())
+        res = json.loads(sock.recv())
+        return res if isinstance(res, list) else []
 
     def _side_stream_loop(self):
+        sock = None
+        annotated = None  # 最近一次带框画面
+        last_detect = 0.0
         while not getattr(self, "_stop_flag", False):
             try:
                 raw = self.cap_side.read()
-                show = raw
-                overlay = PerceptionMixin._cam2_overlay
-                if overlay is not None and time.time() - overlay[0] < 1.5:
-                    show = overlay[1]
+                now = time.time()
+                if raw is not None and now - last_detect >= 0.5:
+                    last_detect = now
+                    if sock is None:
+                        sock = self._side_detect_client()
+                    try:
+                        dets = self._side_detect(sock, raw)
+                        annotated = self.draw_detection_results(raw.copy(), dets)
+                    except Exception as e:
+                        logger.warning(f"侧视检测失败({e}), 重连中...")
+                        try:
+                            sock.close(linger=0)
+                        except Exception:
+                            pass
+                        sock = None
+                        annotated = None
+                show = annotated if annotated is not None else raw
                 if show is not None:
                     self.streamer.update_frame(show, "cam2")
             except Exception as e:
@@ -393,8 +430,7 @@ class PerceptionMixin:
             key=lambda x: (x[4] - sort_pos[0]) ** 2 + (x[5] - sort_pos[1]) ** 2
         )  # 按照距离由近及远排序
         image = self.draw_detection_results(image, det_task)
-        # 交给侧视转发线程发布(始终有实时画面, 有目标时才带框)
-        self.set_cam2_overlay(image)
+        # 侧视画面由 _side_stream_loop 持续发布并叠框, 这里不再直接推 cam2
         # print(det_task)
         return det_task
 
