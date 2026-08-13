@@ -1,0 +1,2 @@
+2025-04-21 15:19:52,738 serial_wrap.py, line 123, INFO:try:/dev/ttyUSB0 - USB Serial
+2025-04-21 15:19:52,822 serial_wrap.py, line 63, INFO:port is /dev/ttyUSB0, controller is mc602, mode USB

@@ -1,0 +1,1 @@
+from .base.ernie_bot_wrap import ErnieBotWrap, HumAttrPrompt, ActionPrompt, ImagePrompt, OrderPrompt

@@ -1,0 +1,57 @@
+hand_cfg:
+  hand:
+    angle_list:
+      LEFT: 93
+      MID: 0
+      RIGHT: -93
+    port: 2
+  hand2:
+    angle_list:
+      UP: -90
+      MID: -37
+      DOWN: 0
+    port: 2
+    mode: 180
+  grap:
+    port_pump: 2
+    port_valve: 3
+horiz_cfg:
+  motor:
+    id: 6
+    reverse: 1
+    type: motor_280
+    perimeter: 0.032
+  pid:
+    Kp: 6
+    Ki: 0
+    Kd: 0
+    setpoint: 0
+    output_limits:
+    - -0.2
+    - 0.2
+  threshold:
+  - 0
+  - 0.315
+pos_cfg:
+  pose_enable: true
+  pose_horiz: 0
+  pose_vert: 0.20015250000000004
+  side: RIGHT
+vert_cfg:
+  motor:
+    id: 3
+    reverse: 1
+    perimeter: 0.008
+  limit_port: 6
+  pid:
+    Kp: 4
+    Ki: 0.1
+    Kd: 0.1
+    setpoint: 0
+    output_limits:
+    - -0.04
+    - 0.04
+  threshold:
+  - 0
+  - 0.2
+arm_length: 0.23
