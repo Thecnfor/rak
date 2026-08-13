@@ -43,7 +43,7 @@ build_one() {
     # 部分检测模型需要静态化输入 + 补 Squeeze.axes 才能被 TRT 解析
     local src_onnx="$onnx"
     if [ -n "$fix_onx" ]; then
-        python3 fix_onnx_for_trt.py "$onnx" "$ENGINE_DIR/${name}_trt.onnx"
+        python3 "$(dirname "$0")/fix_onnx_for_trt.py" "$onnx" "$ENGINE_DIR/${name}_trt.onnx"
         src_onnx="$ENGINE_DIR/${name}_trt.onnx"
     fi
 
