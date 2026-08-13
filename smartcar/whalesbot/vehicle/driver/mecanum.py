@@ -477,7 +477,15 @@ class MecanumDriver:
         while True:
             if self._stop_thread:
                 break
-            current_wheel_linear_velocities = self.wheels_chassis.get_linear()
+            current_wheel_linear_velocities = np.array(
+                self.wheels_chassis.get_linear())
+            # 启动竞态保护: MC602 回传轮速前 get_rad() 可能返回空数组,
+            # 形状不一致时只做基准复位, 不累计位移
+            if (current_wheel_linear_velocities.shape
+                    != previous_wheel_linear_velocities.shape):
+                previous_wheel_linear_velocities = current_wheel_linear_velocities
+                time.sleep(0.05)
+                continue
             # 获取每个轮子的位移
             wheel_linear_displacements = (
                 current_wheel_linear_velocities - previous_wheel_linear_velocities
