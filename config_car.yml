@@ -142,22 +142,6 @@ infer_cfg:
     img_size: [416, 416]
     run_mode: paddle
 
-  - name: front
-    infer_type: YoloeInfer
-    model_dir: front_model2
-    port: 5003
-    img_size: [416, 416]
-    run_mode: paddle
-
-  - name: ocr
-    infer_type: OCRReco
-    # OCR 使用两阶段模型：检测(det) + 识别(rec)
-    det_model_dir: ch_PP-OCRv3_det_infer
-    rec_model_dir: ch_PP-OCRv3_rec_infer
-    port: 5004
-    img_size: Null
-    run_mode: paddle
-
 # ============================================================
 # 文心一言 Access Token 配置
 # 获取地址：https://aistudio.baidu.com/account/accessToken
