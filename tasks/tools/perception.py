@@ -30,9 +30,71 @@ class PerceptionMixin:
         if PerceptionMixin._side_stream_flag:
             return
         PerceptionMixin._side_stream_flag = True
+        self._init_realtime_cache()
         thread = threading.Thread(
             target=self._side_stream_loop, name="side_stream", daemon=True)
         thread.start()
+
+    def _init_realtime_cache(self):
+        """初始化实时检测结果缓存(后台线程每 0.5s 更新一次)。"""
+        self._det_lock = threading.Lock()
+        self._det_cache = None  # (timestamp, dets, annotated_frame, raw_frame)
+
+    def get_realtime_detections(self, fresh=False, max_age=None):
+        """实时获取侧视 task 检测结果。
+
+        后台线程持续检测(_side_stream_loop 每 0.5s 更新缓存), 本方法非阻塞返回
+        最新一次结果; fresh=True 时立刻同步跑一次推理(独立连接, 不阻塞后台线程)。
+
+        返回:
+            list: [cls_id, obj_id, label, score, x_c, y_c, w, h](归一化)
+        """
+        if fresh:
+            try:
+                raw = self.cap_side.read()
+            except Exception:
+                return []
+            if raw is None:
+                return []
+            sock = self._side_detect_client()
+            try:
+                dets = self._side_detect(sock, raw)
+                annotated = self.draw_detection_results(raw.copy(), dets)
+                with self._det_lock:
+                    self._det_cache = (time.time(), dets, annotated, raw)
+            except Exception as e:
+                logger.warning(f"实时检测(fresh)失败: {e}")
+                return []
+            finally:
+                try:
+                    sock.close(linger=0)
+                except Exception:
+                    pass
+            return dets
+
+        cache = self._get_det_cache()
+        if cache is None:
+            return []
+        ts, dets, _, _ = cache
+        if max_age is not None and time.time() - ts > max_age:
+            return []
+        return dets
+
+    def get_realtime_side_frame(self, with_overlay=True):
+        """获取后台线程最近一次侧视画面(带框/原图), 无缓存时返回 None。"""
+        cache = self._get_det_cache()
+        if cache is None:
+            return None
+        _, _, annotated, raw = cache
+        return annotated if (with_overlay and annotated is not None) else raw
+
+    def _get_det_cache(self):
+        lock = getattr(self, "_det_lock", None)
+        if lock is None:
+            self._init_realtime_cache()
+            lock = self._det_lock
+        with lock:
+            return self._det_cache
 
     def _side_detect_client(self):
         """创建独立于任务检测的 ZMQ 客户端(避免共享 socket 的线程竞争)。"""
@@ -72,6 +134,10 @@ class PerceptionMixin:
                     try:
                         dets = self._side_detect(sock, raw)
                         annotated = self.draw_detection_results(raw.copy(), dets)
+                        # 更新实时检测缓存, 供 get_realtime_detections 使用
+                        self._get_det_cache()  # 确保锁初始化
+                        with self._det_lock:
+                            self._det_cache = (time.time(), dets, annotated, raw)
                     except Exception as e:
                         logger.warning(f"侧视检测失败({e}), 重连中...")
                         try:
