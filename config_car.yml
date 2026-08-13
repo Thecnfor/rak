@@ -24,8 +24,11 @@
 
 wbt_car: 0.1
 camera:
-  front: 1
-  side: 2
+  # 编号对应 /dev/camN,由 /etc/udev/rules.d/99-vehicle-wbt.rules 创建:
+  #   cam3 = usb-0:2.3 SP2812 前相机
+  #   cam4 = usb-0:2.4 SP2812 机械臂相机
+  front: 3
+  side: 4
 io:
   left_sensor: 8
   right_sensor: 7

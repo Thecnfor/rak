@@ -118,7 +118,7 @@ class Sampler(object):
             ratio = (num_frames - ori_seg_len + 1.0) / self.num_seg
             clip_offsets = np.around(np.arange(self.num_seg) * ratio)
         else:
-            clip_offsets = np.zeros((self.num_seg, ), dtype=np.int)
+            clip_offsets = np.zeros((self.num_seg, ), dtype=np.intp)
         return clip_offsets
 
     def _get_test_clips(self, num_frames):
@@ -126,9 +126,9 @@ class Sampler(object):
         avg_interval = (num_frames - ori_seg_len + 1) / float(self.num_seg)
         if num_frames > ori_seg_len - 1:
             base_offsets = np.arange(self.num_seg) * avg_interval
-            clip_offsets = (base_offsets + avg_interval / 2.0).astype(np.int)
+            clip_offsets = (base_offsets + avg_interval / 2.0).astype(np.intp)
         else:
-            clip_offsets = np.zeros((self.num_seg, ), dtype=np.int)
+            clip_offsets = np.zeros((self.num_seg, ), dtype=np.intp)
         return clip_offsets
 
     def __call__(self, results):
