@@ -53,11 +53,32 @@ class Camera:
                         time.sleep(1)
                         continue
                     self.cap = cv2.VideoCapture(self.src)
+                    # 校验: 部分 V4L2 设备 isOpened() 为真但随后 REQBUFS 失败
+                    # (USB 掉线重枚举时常见), 需试读一帧确认真正可用
+                    if self.cap is None or not self.cap.isOpened():
+                        logger.error("摄像头{}打开失败, 重试中...".format(self.src))
+                        if self.cap:
+                            self.cap.release()
+                        time.sleep(1)
+                        continue
+                    try:
+                        ok, _ = self.cap.read()
+                    except Exception:
+                        ok = False
+                    if not ok:
+                        logger.error(
+                            "摄像头{}试读失败(设备可能掉线), 重试中...".format(self.src))
+                        self.cap.release()
+                        time.sleep(1)
+                        continue
                 break
             except Exception as e:
                 # print(e)
                 logger.error("init:摄像头打开错误!")
-                self.cap.release()
+                try:
+                    self.cap.release()
+                except Exception:
+                    pass
                 # self.video_detect()
     
     def start_back_thread(self):

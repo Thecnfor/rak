@@ -64,6 +64,8 @@ class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
         self.car_pid_init(cfg)
         self.ring = Beep()
         self.camera_init(cfg)
+        # 侧视实时流(cam2)转发线程
+        self.start_side_stream()
         # paddle推理初始化
         self.paddle_infer_init()
         # 文心一言分析初始化

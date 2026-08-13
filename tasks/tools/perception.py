@@ -7,6 +7,7 @@
 import base64
 import difflib
 import re
+import threading
 import time
 
 import cv2
@@ -14,11 +15,41 @@ from typing import List
 
 from smartcar.paddlebaidu.ernie_bot import ErnieBotWrap, OrderPrompt
 from smartcar.paddlebaidu.infer_cs import ClintInterface
-from smartcar.whalesbot.tools import CountRecord
+from smartcar.whalesbot.tools import CountRecord, logger
 
 
 class PerceptionMixin:
 
+    # 侧视实时流: 始终推原始画面, 检测到新目标时短暂叠加检测框
+    _side_stream_flag = False
+    _cam2_overlay = None  # (timestamp, image)
+
+    def start_side_stream(self):
+        """启动侧视(cam2)实时流转发线程, 由 MyCar 初始化时调用。"""
+        if PerceptionMixin._side_stream_flag:
+            return
+        PerceptionMixin._side_stream_flag = True
+        thread = threading.Thread(
+            target=self._side_stream_loop, name="side_stream", daemon=True)
+        thread.start()
+
+    def set_cam2_overlay(self, image):
+        PerceptionMixin._cam2_overlay = (time.time(), image)
+
+    def _side_stream_loop(self):
+        while not getattr(self, "_stop_flag", False):
+            try:
+                raw = self.cap_side.read()
+                show = raw
+                overlay = PerceptionMixin._cam2_overlay
+                if overlay is not None and time.time() - overlay[0] < 1.5:
+                    show = overlay[1]
+                if show is not None:
+                    self.streamer.update_frame(show, "cam2")
+            except Exception as e:
+                logger.warning(f"侧视流转发异常: {e}")
+            time.sleep(0.05)  # ~20fps
+        PerceptionMixin._side_stream_flag = False
 
     def paddle_infer_init(self):
         """
@@ -362,7 +393,8 @@ class PerceptionMixin:
             key=lambda x: (x[4] - sort_pos[0]) ** 2 + (x[5] - sort_pos[1]) ** 2
         )  # 按照距离由近及远排序
         image = self.draw_detection_results(image, det_task)
-        self.streamer.update_frame(image, "cam2")
+        # 交给侧视转发线程发布(始终有实时画面, 有目标时才带框)
+        self.set_cam2_overlay(image)
         # print(det_task)
         return det_task
 
