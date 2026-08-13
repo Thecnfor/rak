@@ -19,35 +19,32 @@ from smartcar.paddlebaidu.ernie_bot import ErnieBotWrap, OrderPrompt
 from smartcar.paddlebaidu.infer_cs import ClintInterface
 from smartcar.whalesbot.tools import CountRecord, logger
 
-# 侧视检测结果的叠框持续时间(秒): 此窗口内经检测后就显示带框画面
-SIDE_OVERLAY_HOLD_SECONDS = 2.0
-
-
 class PerceptionMixin:
 
     # 侧视实时流: 始终推画面, 检测线程每 0.5s 跑一次检测, 有目标就叠框
     _side_stream_flag = False
 
     def start_side_stream(self):
-        """启动侧视(cam2)实时流 + 持续检测线程, 由 MyCar 初始化时调用。"""
+        """启动侧视(cam2)实时检测 + 实时推流两个线程, 由 MyCar 初始化时调用。"""
         if PerceptionMixin._side_stream_flag:
             return
         PerceptionMixin._side_stream_flag = True
         self._init_realtime_cache()
-        thread = threading.Thread(
-            target=self._side_stream_loop, name="side_stream", daemon=True)
-        thread.start()
+        threading.Thread(
+            target=self._side_detect_loop, name="side_detect", daemon=True).start()
+        threading.Thread(
+            target=self._side_stream_loop, name="side_stream", daemon=True).start()
 
     def _init_realtime_cache(self):
-        """初始化实时检测结果缓存(后台线程每 0.5s 更新一次)。"""
+        """初始化实时检测结果缓存(检测线程来一帧推一帧)。"""
         self._det_lock = threading.Lock()
-        self._det_cache = None  # (timestamp, dets, annotated_frame, raw_frame)
+        self._det_cache = None  # (timestamp, dets)
 
     def get_realtime_detections(self, fresh=False, max_age=None):
         """实时获取侧视 task 检测结果。
 
-        后台线程持续检测(_side_stream_loop 每 0.5s 更新缓存), 本方法非阻塞返回
-        最新一次结果; fresh=True 时立刻同步跑一次推理(独立连接, 不阻塞后台线程)。
+        检测线程对最新帧背靠背推理并更新缓存; 本方法非阻塞返回最新结果。
+        fresh=True 时立刻同步跑一次推理(独立连接, 不阻塞检测线程)。
 
         返回:
             list: [cls_id, obj_id, label, score, x_c, y_c, w, h](归一化)
@@ -62,9 +59,8 @@ class PerceptionMixin:
             sock = self._side_detect_client()
             try:
                 dets = self._side_detect(sock, raw)
-                annotated = self.draw_detection_results(raw.copy(), dets)
                 with self._det_lock:
-                    self._det_cache = (time.time(), dets, annotated, raw)
+                    self._det_cache = (time.time(), dets)
             except Exception as e:
                 logger.warning(f"实时检测(fresh)失败: {e}")
                 return []
@@ -78,18 +74,18 @@ class PerceptionMixin:
         cache = self._get_det_cache()
         if cache is None:
             return []
-        ts, dets, _, _ = cache
+        ts, dets = cache
         if max_age is not None and time.time() - ts > max_age:
             return []
         return dets
 
     def get_realtime_side_frame(self, with_overlay=True):
-        """获取后台线程最近一次侧视画面(带框/原图), 无缓存时返回 None。"""
+        """获取侧视最新画面; with_overlay 时在最新帧上实时叠加检测框。"""
         cache = self._get_det_cache()
-        if cache is None:
-            return None
-        _, _, annotated, raw = cache
-        return annotated if (with_overlay and annotated is not None) else raw
+        raw = getattr(self.cap_side, "frame", None)
+        if not with_overlay or cache is None or raw is None or not cache[1]:
+            return raw
+        return self.draw_detection_results(raw, cache[1])
 
     def _get_det_cache(self):
         lock = getattr(self, "_det_lock", None)
@@ -122,32 +118,55 @@ class PerceptionMixin:
         res = json.loads(sock.recv())
         return res if isinstance(res, list) else []
 
+    def _side_detect_loop(self):
+        # 实时连续推理: 拿最新帧背靠背检测(节奏由推理速度决定, 无固定轮询)。
+        # 结果写入 _det_cache, 供推流线程与 get_realtime_detections 使用。
+        sock = None
+        while not getattr(self, "_stop_flag", False):
+            try:
+                cap = self.cap_side
+                raw = getattr(cap, "frame", None)
+                if raw is None:
+                    time.sleep(0.01)
+                    continue
+                if sock is None:
+                    sock = self._side_detect_client()
+                try:
+                    dets = self._side_detect(sock, raw)
+                    with self._det_lock:
+                        self._det_cache = (time.time(), dets)
+                except Exception as e:
+                    logger.warning(f"侧视实时检测失败({e}), 重连中...")
+                    try:
+                        sock.close(linger=0)
+                    except Exception:
+                        pass
+                    sock = None
+            except Exception as e:
+                logger.warning(f"侧视检测线程异常: {e}")
+
     def _side_stream_loop(self):
-        # 事件驱动实时推流: 摄像头每抓一帧即唤醒发布, 无轮询/无固定延时。
-        # 检测由 get_realtime_detections(fresh=True) / get_detection_results 驱动,
-        # 结果新鲜(SIDE_OVERLAY_HOLD_SECONDS 内)时推带框画面, 否则推原图。
+        # 事件驱动实时推流: 摄像头每抓一帧即被 frame_ready 唤醒并立即发布。
+        # 若已有实时检测结果, 在最新帧上叠框后发布(满帧率出框); 无目标推原图。
         while not getattr(self, "_stop_flag", False):
             try:
                 cap = self.cap_side
                 ready = getattr(cap, "frame_ready", None)
                 if ready is None:
-                    # 兜底: 旧版 Camera 无事件时退化为有限等待
                     time.sleep(1 / 60.0)
                     raw = cap.read()
                 else:
                     ready.wait()
                     ready.clear()
                     raw = cap.frame
-                show = raw
-                if raw is not None:
-                    cache = self._get_det_cache()
-                    if cache is not None:
-                        ts, _dets, annotated, _raw = cache
-                        if (annotated is not None
-                                and time.time() - ts
-                                < SIDE_OVERLAY_HOLD_SECONDS):
-                            show = annotated
-                    self.streamer.update_frame(show, "cam2")
+                if raw is None:
+                    continue
+                cache = self._get_det_cache()
+                if cache is not None and cache[1]:
+                    show = self.draw_detection_results(raw, cache[1])
+                else:
+                    show = raw
+                self.streamer.update_frame(show, "cam2")
             except Exception as e:
                 logger.warning(f"侧视流转发异常: {e}")
         PerceptionMixin._side_stream_flag = False
@@ -494,11 +513,11 @@ class PerceptionMixin:
             key=lambda x: (x[4] - sort_pos[0]) ** 2 + (x[5] - sort_pos[1]) ** 2
         )  # 按照距离由近及远排序
         image = self.draw_detection_results(image, det_task)
-        # 同步刷新实时检测缓存: 侧视流转发线程据此叠框,
+        # 同步刷新实时检测缓存: 推流线程据此叠框,
         # get_realtime_detections() 也可直接读到本次结果
         self._get_det_cache()
         with self._det_lock:
-            self._det_cache = (time.time(), det_task, image, self.side_image)
+            self._det_cache = (time.time(), det_task)
         # print(det_task)
         return det_task
 
