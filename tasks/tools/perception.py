@@ -19,6 +19,9 @@ from smartcar.paddlebaidu.ernie_bot import ErnieBotWrap, OrderPrompt
 from smartcar.paddlebaidu.infer_cs import ClintInterface
 from smartcar.whalesbot.tools import CountRecord, logger
 
+# 侧视检测结果的叠框持续时间(秒): 此窗口内经检测后就显示带框画面
+SIDE_OVERLAY_HOLD_SECONDS = 2.0
+
 
 class PerceptionMixin:
 
@@ -120,33 +123,18 @@ class PerceptionMixin:
         return res if isinstance(res, list) else []
 
     def _side_stream_loop(self):
-        sock = None
-        annotated = None  # 最近一次带框画面
-        last_detect = 0.0
+        # 后台线程只负责推画面: 检测结果新鲜时叠框, 否则推原图。
+        # 检测完全由 get_realtime_detections(fresh=True) / get_detection_results 驱动
         while not getattr(self, "_stop_flag", False):
             try:
                 raw = self.cap_side.read()
-                now = time.time()
-                if raw is not None and now - last_detect >= 0.5:
-                    last_detect = now
-                    if sock is None:
-                        sock = self._side_detect_client()
-                    try:
-                        dets = self._side_detect(sock, raw)
-                        annotated = self.draw_detection_results(raw.copy(), dets)
-                        # 更新实时检测缓存, 供 get_realtime_detections 使用
-                        self._get_det_cache()  # 确保锁初始化
-                        with self._det_lock:
-                            self._det_cache = (time.time(), dets, annotated, raw)
-                    except Exception as e:
-                        logger.warning(f"侧视检测失败({e}), 重连中...")
-                        try:
-                            sock.close(linger=0)
-                        except Exception:
-                            pass
-                        sock = None
-                        annotated = None
-                show = annotated if annotated is not None else raw
+                show = raw
+                cache = self._get_det_cache()
+                if cache is not None:
+                    ts, _dets, annotated, _raw = cache
+                    if (annotated is not None
+                            and time.time() - ts < SIDE_OVERLAY_HOLD_SECONDS):
+                        show = annotated
                 if show is not None:
                     self.streamer.update_frame(show, "cam2")
             except Exception as e:
@@ -496,7 +484,11 @@ class PerceptionMixin:
             key=lambda x: (x[4] - sort_pos[0]) ** 2 + (x[5] - sort_pos[1]) ** 2
         )  # 按照距离由近及远排序
         image = self.draw_detection_results(image, det_task)
-        # 侧视画面由 _side_stream_loop 持续发布并叠框, 这里不再直接推 cam2
+        # 同步刷新实时检测缓存: 侧视流转发线程据此叠框,
+        # get_realtime_detections() 也可直接读到本次结果
+        self._get_det_cache()
+        with self._det_lock:
+            self._det_cache = (time.time(), det_task, image, self.side_image)
         # print(det_task)
         return det_task
 
