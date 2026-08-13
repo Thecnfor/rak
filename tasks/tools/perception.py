@@ -32,8 +32,9 @@ class PerceptionMixin:
         # self.front_det = ClintInterface('front')
         # 任务识别
         self.task_det = ClintInterface("task")
-        # ocr识别
-        self.ocr_rec = ClintInterface("ocr")
+        # ocr识别(已停用:仅保留 lane + task 两个模型,无需 OCR)
+        # self.ocr_rec = ClintInterface("ocr")
+        self.ocr_rec = None
         # 识别为None
         self.last_det = None
 
@@ -116,6 +117,9 @@ class PerceptionMixin:
                 else:
                     flag = det_label == "order" or det_label == "name"
                 if flag:
+                    # OCR 已停用(仅 lane + task 模型)
+                    if self.ocr_rec is None:
+                        return text_out
                     # x1, y1, w, h = det_bbox
                     # # print(img.shape)
                     # # print(x1, y1, w, h)
@@ -199,6 +203,9 @@ class PerceptionMixin:
                     else:
                         flag = det_label == "order" or det_label == "name"
                     if flag:
+                        # OCR 已停用(仅 lane + task 模型)
+                        if self.ocr_rec is None:
+                            return None
                         # x1, y1, w, h = det_bbox
 
                         # # print(img.shape)

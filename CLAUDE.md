@@ -6,10 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 There is no project packaging file, dependency lockfile, Makefile, or repository test suite. The documented runtime environment is Python 3.8+ on the Jetson Nano/WhalesBot hardware platform with PaddlePaddle Inference and the WhalesBot SDK available.
 
-- Run the complete competition flow on the car: `python car_start_2026.py`
+- Run the complete competition flow on the car: `python run.py all` (单任务如 `python run.py seeding`; `python run.py --help` 查看全部参数)
 - Run the dual-camera teleoperation/data collection mode: `python -m smartcar.whalesbot.tools.collect_control`
-- Run a syntax-only check without initializing hardware: `python -m compileall -q car_start_2026.py car_task_function.py car_wrap_2026.py collect_data.py smartcar`
-- There is no configured lint command or automated test command. Individual task checks are performed by editing `main()` in `car_start_2026.py` to leave only the task under test, then running the script on hardware; `car_wrap_2026.py` also contains an interactive `manage()`/OCR debug entry point when run directly.
+- Run a syntax-only check without initializing hardware: `python -m compileall -q run.py tasks collect_data.py smartcar`
+- There is no configured lint command or automated test command. Individual task checks are performed by running the corresponding task via `run.py` on hardware.
 
 Do not expect the main scripts to run on a normal development machine: importing/initializing `MyCar` opens cameras, hardware controllers, background key handling, ZMQ inference clients, and Ernie clients.
 
@@ -17,9 +17,7 @@ Do not expect the main scripts to run on a normal development machine: importing
 
 The repository is a hardware-first Python application for a Baidu SmartCar agriculture competition robot.
 
-- `car_start_2026.py` is the top-level orchestrator. Its `main()` initializes the robot and executes the ordered flow: seeding, animal detection, watering, shooting, harvesting, sorting/storage, order recognition, and delivery. `auto_lane_tracing()` is intentionally left as a commented lane-following test hook.
-- `car_task_function.py` contains the competition choreography. Tasks share a module-global `my_car`, which is created by `init()` as `MyCar`; task functions combine odometry, lane-following distance moves, visual alignment, arm poses, suction, storage servo control, shooting, OCR, and order parsing. Preserve the task ordering and calibrated distances/poses unless deliberately recalibrating the field behavior.
-- `car_wrap_2026.py` defines `MyCar(MecanumDriver)`, the main hardware/application façade. Construction initializes WhalesBot sensors and actuators, cameras, PID controllers, ZMQ inference clients, Ernie wrappers, streaming, and a daemon key thread. High-level motion methods (`lane_time`, `lane_dis`, `lane_dis_offset`, `move_to_position`, `move_to_detection_target`) sit above low-level mecanum/arm drivers.
+- `tasks/` is the task layer (refactored from the former `car_start_2026.py` / `car_task_function.py` / `car_wrap_2026.py` monolith, which no longer exist). `tasks/tools/car.py` defines `MyCar(MotionMixin, PerceptionMixin, MecanumDriver)`, the main hardware/application façade; `tasks/tools/motion.py` / `perception.py` / `pids.py` / `helpers.py` provide the individual capabilities. `tasks/*.py` (seeding, target_detection, watering, shooting, harvesting, sorting, ordering, delivery) are the competition tasks, orchestrated by `run.py`. Preserve the task ordering and calibrated distances/poses unless deliberately recalibrating the field behavior.
 - `smartcar/whalesbot/` is the hardware layer: vehicle drivers/controllers, arm control, serial/MC602 communication, cameras, streaming, PID and utility classes. `smartcar/__init__.py` re-exports the commonly used hardware and utility APIs.
 - `smartcar/paddlebaidu/` is the perception and language layer. `infer_cs` provides the client interface used by `MyCar`; configured inference backends/models cover lane detection, task/front object detection, and OCR. `ernie_bot` wraps image/order analysis and prompt handling. Model assets live under `smartcar/paddlebaidu/models/`.
 - `config_car.yml` is runtime configuration, not packaging metadata. It defines camera channels (`front: 1`, `side: 2`), IO pins, speed limits, lane/detection/location PID settings, ZMQ inference services (ports 5001–5004), model directories, and the Ernie access-token field. Hardware calibration and model/config changes can alter physical behavior.
