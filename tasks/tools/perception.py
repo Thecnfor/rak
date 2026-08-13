@@ -373,27 +373,19 @@ class PerceptionMixin:
         error, angle = res[0], res[1]
         # 绘制标签
         label_text = f"d_e: {error:7.5f} d_a:{angle:7.5f}"
-
+        # 用统一厚度偏移描边(黑边+绿字), 避免 cv2 5.x 下
+        # 不同 thickness 渲染字形宽度不一致导致的白绿两层错位
+        org = (20, 40)
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                if dx == 0 and dy == 0:
+                    continue
+                cv2.putText(
+                    image, label_text, (org[0] + dx, org[1] + dy),
+                    cv2.FONT_HERSHEY_TRIPLEX, 1.0, (0, 0, 0), 1, cv2.LINE_AA)
         cv2.putText(
-            image,
-            label_text,
-            (20, 40),
-            cv2.FONT_HERSHEY_TRIPLEX,
-            1.0,
-            (255, 255, 255),
-            3,
-            cv2.LINE_AA,
-        )
-        cv2.putText(
-            image,
-            label_text,
-            (20, 40),
-            cv2.FONT_HERSHEY_TRIPLEX,
-            1.0,
-            (0, 255, 0),
-            1,
-            cv2.LINE_AA,
-        )
+            image, label_text, org,
+            cv2.FONT_HERSHEY_TRIPLEX, 1.0, (0, 255, 0), 1, cv2.LINE_AA)
         self.streamer.update_frame(image, "cam1")
         # print(label_text)
         return error, angle
