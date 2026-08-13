@@ -35,6 +35,8 @@ from .. import (
 
 POSITION_ERROR_THRESHOLD = 4e-4 # 位置误差阈值
 STOP_CHECK_THRESHOLD = 1e-10 # 停止检查阈值
+# 复位超时(秒): 机械臂归位卡死时兜底, 避免无限循环挂起整个流程
+RESET_TIMEOUT = 10.0
 
 
 def get_path_relative(*args):
@@ -170,7 +172,11 @@ class ArmController:
         重置竖直方向位置
         """
         self.y_pid.setpoint = -0.25
+        start_time = time.time()
         while True:
+            if time.time() - start_time > RESET_TIMEOUT:
+                logger.warning("机械臂 Y 轴复位超时, 跳过(请检查电机/限位传感器)")
+                break
             if self.y_pid_moveto(-0.25):
                 break
             if self.y_reset_check():
@@ -294,7 +300,11 @@ class ArmController:
         target = -0.33
         self.x_pid.output_limits = (-0.06, 0.06)
         self.x_pid.setpoint = target
+        start_time = time.time()
         while True:
+            if time.time() - start_time > RESET_TIMEOUT:
+                logger.warning("机械臂 X 轴复位超时, 跳过(请检查电机/接线)")
+                break
             if self.x_pid_moveto(target):
                 break
             if self.x_stop_check():
