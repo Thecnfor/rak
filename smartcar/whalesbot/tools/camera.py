@@ -26,6 +26,8 @@ class Camera:
         # self.src =src
         self.cap = None
         self.frame = None
+        # 新的帧到达事件(事件驱动, 供实时推流轮询各帧使用)
+        self.frame_ready = threading.Event()
         # 暂停标志
         self.pause_flag = False
         self.stop_flag = False
@@ -100,6 +102,7 @@ class Camera:
                 ret, frame = self.cap.read()
                 if ret:
                     self.frame = frame
+                    self.frame_ready.set()  # 唤醒等帧的推流线程
                 else:
                     logger.error("read:读取图像错误!!!!")
                     self.cap.release()

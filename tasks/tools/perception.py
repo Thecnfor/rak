@@ -123,23 +123,33 @@ class PerceptionMixin:
         return res if isinstance(res, list) else []
 
     def _side_stream_loop(self):
-        # 后台线程只负责推画面: 检测结果新鲜时叠框, 否则推原图。
-        # 检测完全由 get_realtime_detections(fresh=True) / get_detection_results 驱动
+        # 事件驱动实时推流: 摄像头每抓一帧即唤醒发布, 无轮询/无固定延时。
+        # 检测由 get_realtime_detections(fresh=True) / get_detection_results 驱动,
+        # 结果新鲜(SIDE_OVERLAY_HOLD_SECONDS 内)时推带框画面, 否则推原图。
         while not getattr(self, "_stop_flag", False):
             try:
-                raw = self.cap_side.read()
+                cap = self.cap_side
+                ready = getattr(cap, "frame_ready", None)
+                if ready is None:
+                    # 兜底: 旧版 Camera 无事件时退化为有限等待
+                    time.sleep(1 / 60.0)
+                    raw = cap.read()
+                else:
+                    ready.wait()
+                    ready.clear()
+                    raw = cap.frame
                 show = raw
-                cache = self._get_det_cache()
-                if cache is not None:
-                    ts, _dets, annotated, _raw = cache
-                    if (annotated is not None
-                            and time.time() - ts < SIDE_OVERLAY_HOLD_SECONDS):
-                        show = annotated
-                if show is not None:
+                if raw is not None:
+                    cache = self._get_det_cache()
+                    if cache is not None:
+                        ts, _dets, annotated, _raw = cache
+                        if (annotated is not None
+                                and time.time() - ts
+                                < SIDE_OVERLAY_HOLD_SECONDS):
+                            show = annotated
                     self.streamer.update_frame(show, "cam2")
             except Exception as e:
                 logger.warning(f"侧视流转发异常: {e}")
-            time.sleep(0.05)  # ~20fps
         PerceptionMixin._side_stream_flag = False
 
     def paddle_infer_init(self):
