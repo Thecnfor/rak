@@ -130,7 +130,6 @@ class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
         self.shoot.set(1)
         time.sleep(0.3)
         self.shoot.set(0)
-        time.sleep(0.5)
 
     def car_pid_init(self, cfg):
         """

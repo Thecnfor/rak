@@ -31,6 +31,5 @@ class InferInitMixin:
         初始化、图像分析和订单分析的文心一言接口。
         """
         self.image_analysis = ErnieBotWrap()
-
         self.order_analysis = ErnieBotWrap()
         self.order_analysis.set_promt(str(OrderPrompt()))

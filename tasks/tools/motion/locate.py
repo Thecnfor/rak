@@ -8,7 +8,7 @@ from typing import Union
 
 from smartcar import PID, logger
 from smartcar.whalesbot.tools import CountRecord, get_yaml
-
+ 
 
 class LocateMixin:
 
