@@ -289,13 +289,16 @@ class Motors_2:
             self.args_none.append(0)
         self.motors_wrap = DevListWrap(self.motors)
         self.encoders_wrap = DevListWrap(self.encoders)
+        # 一帧驱动 4 路电机: 取代 4 路独立帧。4 帧连发挤占半双工串口总线,
+        # 导致部分电机收不到命令(表现为四轮不一起转/间歇丢帧)。
+        self.motor4 = Motor4_2()
 
     # 设置速度
     def set_speed(self, speeds):
         if not self.reverse:
             speeds = [-i for i in speeds]
         # print(speeds)
-        return self.motors_wrap.get_all(speeds, mode=2)
+        return self.motor4.set_speed(speeds)
 
     def get_speed(self):
         speed = self.motors_wrap.get_all(self.args_none, mode=1)

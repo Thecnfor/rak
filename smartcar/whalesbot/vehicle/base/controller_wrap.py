@@ -425,10 +425,15 @@ class Motors:
 
         self.motors_1 = NoneDev()
         self.motors_2 = Motors_2(port_list, reverse)
+        self.motor4_2 = Motor4_2()  
+        self.reverse = reverse
 
     def set_speed(self, speeds):
-        funcs = [self.motors_1.set_speed, self.motors_2.set_speed]
-        return funcs[ctl_id](speeds)
+        if ctl_id == 1:
+            if not self.reverse:
+                speeds = [-i for i in speeds]
+            return self.motor4_2.set_speed(list(speeds))
+        return self.motors_1.set_speed(speeds)
 
     def set_angular(self, angular):
         # print(self.encoder_resolution)

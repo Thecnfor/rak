@@ -161,3 +161,6 @@ nohup.out
 .codegraph/
 .trae/
 
+#test
+scripts/
+

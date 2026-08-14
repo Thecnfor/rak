@@ -210,10 +210,21 @@ class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
         # self.grap_cam.close()
 
 
-def create_car(reset=True):
-    """Create the competition car and perform the standard preparation."""
+def create_car(reset=True, comp_mode=False):
+    """
+    参数:
+        reset (bool): True 时执行蜂鸣提示 + 机械臂复位 + 里程计清零。
+        comp_mode (bool): 是否进入比赛模式。True 时按键交给任务编排器
+            (Orchestrator) 统一处理（4=一键启动/重来, 1=跳过, 3=急停），
+            因此关闭 MyCar 内置的按键线程，避免双线程同时读按键造成串口冲突；
+            任务编排与其他功能保持不变。
+    """
     car = MyCar()
     car.STOP_PARAM = False
+    if comp_mode:
+        # 比赛模式：禁用 MyCar 内置按键线程（按键统一由 Orchestrator 接管）
+        car._end_flag = True
+        car.thread_key.join()
     if reset:
         car.beep()
         car.arm.reset_position()
