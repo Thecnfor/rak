@@ -3,6 +3,8 @@ import time
 
 
 def run(car):
+    end_dis = car.get_distance() + 0.5
+    car.move_base([0.3, 0, 0], lambda: car.get_distance() > end_dis)
 
     x_length = 0.45  # 基地前方转角的位置，用于计算播种位置
     dis = 0.55  # 转角后第一个播种点的距离

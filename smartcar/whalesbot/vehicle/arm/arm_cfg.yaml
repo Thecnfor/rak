@@ -36,7 +36,7 @@ pos_cfg:
   pose_enable: true
   pose_horiz: 0.0
   pose_vert: 0.20015250000000004
-  side: LEFT
+  side: RIGHT
 vert_cfg:
   motor:
     id: 3
