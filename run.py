@@ -2,7 +2,6 @@
 """Run the complete competition flow or one task on the real car."""
 
 import argparse
-import json
 
 from tasks import delivery, harvesting, ordering, seeding, shooting, sorting
 from tasks import target_detection, watering
@@ -12,31 +11,23 @@ def run_all(car):
     seeding.run(car)
     animals = target_detection.run(car)
     watering.run(car)
-    shooting.run(car, animals)
+    shooting.run(car)
     harvesting.run(car)
     sorting.run(car)
     orders = ordering.run(car)
-    delivery.run(car, orders)
-
-
-def parse_animals(value):
-    animals = [int(item.strip()) for item in value.split(",") if item.strip()]
-    if len(animals) != 4:
-        raise argparse.ArgumentTypeError("animals must contain four comma-separated values")
-    return animals
-
+    delivery.run(car)
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "task",
+        nargs="?",
+        default="all",
         choices=[
             "all", "seeding", "target-detection", "watering", "shooting",
             "harvesting", "sorting", "ordering", "delivery",
         ],
     )
-    parser.add_argument("--animals", type=parse_animals, default=None)
-    parser.add_argument("--orders", help="JSON file used by the delivery task")
     parser.add_argument("--no-reset", action="store_true", help="skip arm and odometry reset")
     args = parser.parse_args()
 
@@ -53,7 +44,7 @@ def main():
         elif args.task == "watering":
             watering.run(car)
         elif args.task == "shooting":
-            shooting.run(car, args.animals)
+            shooting.run(car)
         elif args.task == "harvesting":
             harvesting.run(car)
         elif args.task == "sorting":
@@ -61,11 +52,7 @@ def main():
         elif args.task == "ordering":
             print(ordering.run(car))
         elif args.task == "delivery":
-            orders = None
-            if args.orders:
-                with open(args.orders, "r", encoding="utf-8") as stream:
-                    orders = json.load(stream)
-            delivery.run(car, orders)
+            delivery.run(car)
     finally:
         car.stop()
         car.close()
