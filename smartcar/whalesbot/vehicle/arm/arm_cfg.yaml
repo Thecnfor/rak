@@ -4,7 +4,7 @@ hand_cfg:
       LEFT: 93
       MID: 0
       RIGHT: -93
-    port: 2
+    port: 3
   hand2:
     angle_list:
       UP: -90

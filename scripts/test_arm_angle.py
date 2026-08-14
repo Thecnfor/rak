@@ -26,6 +26,8 @@ import os
 import sys
 import time
 
+import yaml
+
 # 让脚本在任意 cwd 下都能 import smartcar(仓库根目录加入 sys.path)
 repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, repo_root)
@@ -36,6 +38,15 @@ from smartcar.whalesbot.vehicle.base.controller_wrap import ServoBus, ServoPwm
 # 与 arm_cfg.yaml 的 hand.angle_list 保持一致
 ANGLE_MAP = {"LEFT": 93, "MID": 0, "RIGHT": -93}
 SPEED = 80  # 舵机转速, 与 set_arm_angle 默认一致
+
+# 端口从 arm_cfg.yaml 读取, 与 ArmController 一致(避免硬编码偏差)
+_arm_cfg = yaml.load(
+    open(os.path.join(repo_root, "smartcar", "whalesbot", "vehicle", "arm", "arm_cfg.yaml")),
+    Loader=yaml.FullLoader,
+)
+ARM_PORT = _arm_cfg["hand_cfg"]["hand"]["port"]  # 大臂总线舵机地址
+HAND_PORT = _arm_cfg["hand_cfg"]["hand2"]["port"]  # 手部 PWM 舵机端口
+HAND_MODE = _arm_cfg["hand_cfg"]["hand2"]["mode"]  # 手部 PWM 舵机模式
 
 
 def run_arm_test(angle="RIGHT", speed=SPEED, no_hand=False):
@@ -57,11 +68,11 @@ def run_arm_test(angle="RIGHT", speed=SPEED, no_hand=False):
 
     if not no_hand:
         # 安全步骤: 先把手指抬起来(UP=-90), 转臂时手部别扫到东西
-        hand = ServoPwm(2, mode=180)
+        hand = ServoPwm(HAND_PORT, mode=HAND_MODE)
         hand.set_angle(-90, speed)
         time.sleep(1)
 
-    arm = ServoBus(2)  # 大臂总线舵机, 端口 2(来自 hand_cfg.hand.port)
+    arm = ServoBus(ARM_PORT)  # 大臂总线舵机, 端口来自 hand_cfg.hand.port
     print(f"arm -> {resolved}° (speed {speed})")
     arm.set_angle(resolved, speed)
     time.sleep(1.5)  # 命令不等到位, 手动等舵机转完
@@ -82,11 +93,11 @@ def hold_arm_test(angle="RIGHT", speed=SPEED, no_hand=False):
         resolved = int(angle)
 
     if not no_hand:
-        hand = ServoPwm(2, mode=180)
+        hand = ServoPwm(HAND_PORT, mode=HAND_MODE)
         hand.set_angle(-90, speed)
         time.sleep(1)
 
-    arm = ServoBus(2)
+    arm = ServoBus(ARM_PORT)
     print(f"持续重发 arm -> {resolved}° (每0.5s, Ctrl+C 退出)...")
     print("观察: 大臂是否上锁/转动?")
     try:
@@ -104,7 +115,7 @@ def sweep_servo_test(speed=SPEED, no_hand=False):
     逐口发 60°→0° 动作, 你观察大臂在哪个口会动; 其他口无舵机则无反应。
     """
     if not no_hand:
-        hand = ServoPwm(2, mode=180)
+        hand = ServoPwm(HAND_PORT, mode=HAND_MODE)
         hand.set_angle(-90, speed)
         time.sleep(1)
 
