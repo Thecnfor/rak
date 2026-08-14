@@ -162,7 +162,7 @@ class ArmController(ArmMotion):
         # 注: X/Y 共享同一根串口总线, 并发复位会互相抢占导致命令丢失(电机不动)。
         # 因此这里改为串行复位: 先 Y 复位完成, 再 X 复位完成。
         self.set_hand_angle("UP")
-        self.set_arm_angle("RIGHT")
+        self.set_arm_angle("LEFT")
         print("开始重置竖直方向位置")
         self.reset_y()
         print("开始重置水平方向位置")

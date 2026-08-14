@@ -126,7 +126,6 @@ class ArmMotion:
                 self.y_pose_start = self.motor_y.get_dis()
                 self.y_pose_now = 0
                 break
-            time.sleep(0.02)  # 让出串口, 避免死循环独占总线
         self.y_speed(0)
 
     def move_y_position(self, target):

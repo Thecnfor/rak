@@ -4,7 +4,7 @@ hand_cfg:
       LEFT: 93
       MID: 0
       RIGHT: -93
-    port: 2
+    port: 3
   hand2:
     angle_list:
       UP: -90
@@ -35,8 +35,8 @@ horiz_cfg:
 pos_cfg:
   pose_enable: true
   pose_horiz: 0.0
-  pose_vert: 0.0
-  side: RIGHT
+  pose_vert: -0.00037750000000000283
+  side: LEFT
 vert_cfg:
   motor:
     id: 3
