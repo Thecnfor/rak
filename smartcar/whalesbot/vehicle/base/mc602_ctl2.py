@@ -442,7 +442,12 @@ class Stepper_2(DevCmdInterface):
         self.ser.send_async(data_bytes, callback=callback, timeout=self.time_out)
 
     def get_step(self):
-        return super().get()[1]
+        val = super().get()
+        if val is None:
+            # 启动/瞬态读超时(last_data 尚未建立): 返回 0 避免崩溃,
+            # 机械臂复位流程会重新校准到限位, 0 起始值会被纠正。
+            return 0
+        return val[1]
 
 
 def beep_test():
