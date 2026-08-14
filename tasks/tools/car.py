@@ -217,7 +217,6 @@ def create_car(reset=True):
     car.STOP_PARAM = False
     if reset:
         car.beep()
-        time.sleep(1)
         car.arm.reset_position()
         car.reset_position()
     return car

@@ -62,7 +62,7 @@ car.close()   # 关按键线程 / 摄像头 / 流媒体（写独立脚本务必�
 
 | 方法 | 说明 |
 |---|---|
-| `car.set_velocity(x, y, z)` | 设置底盘速度（x 前后 / y 左右 / z 角速度，单位 m/s 与 rad/s） |
+| `car.set_velocity(x, y, z)` | 设置底盘速度（x 前后 / y 左右 / z 角速度，单位 m/s 与 rad/s）；**开环**，无纠偏 |
 | `car.set_velocity_for_duration(x, y, z, dur)` | 以给定速度运动 dur 秒后自停 |
 | `car.stop()` | 速度清零 |
 
@@ -71,7 +71,7 @@ car.close()   # 关按键线程 / 摄像头 / 流媒体（写独立脚本务必�
 | 方法 / 属性 | 说明 |
 |---|---|
 | `car.get_odometry(show_info=False)` | 返回 `[x, y, theta]`（世界坐标，m / rad） |
-| `car.get_distance(show_info=False)` | 累计行驶路程（m） |
+| `car.get_distance(show_info=False)` | 累计行驶路程（m）；注意其按 `dx,dy 模长之和` 累计，**转弯/横移也会计入** |
 | `car.reset_position(x=0, y=0, z=0.0, distance=0)` | 重置位姿（默认回原点） |
 | `car.x` | 当前 x 位置（mm） |
 | `car.move_x(mm)` / `car.move_y(mm)` / `car.move_z(deg)` | 相对移动 / 旋转 |
@@ -84,15 +84,62 @@ car.close()   # 关按键线程 / 摄像头 / 流媒体（写独立脚本务必�
 | `car.world_to_car_velocity(vel_world, angle_car)` | 世界系速度 → 车体系 |
 | `car.car_to_world_velocity(vel_car, angle_car)` | 车体系速度 → 世界系 |
 
-### 1.4 PID 位姿控制
+### 1.4 PID 位姿控制（闭环，推荐直线 / 定点）
+
+> `move_to_position / move_for / offset_by` 是 **带 x/y/yaw 三路 PID 的闭环**控制（基于里程计），
+> 相比 `set_velocity` 开环直走能自动修正跑偏，是"直行 / 到点"的最稳方式。
 
 | 方法 | 说明 |
 |---|---|
-| `car.move_to_position(target, duration=None, max_velocities=(0.2,0.2,π/3), tolerance=(0.004,0.004,0.02), timeout=30.0)` | PID 移动到绝对位姿 `[x,y,theta]`；连续 20 次到位或超时结束 |
-| `car.move_for(position_offset, duration, max_velocities, tolerance)` | 基于当前位置叠加相对偏移（m/rad） |
-| `car.offset_by(position_offset, duration, max_velocities, tolerance)` | 相对偏移（x/y 为 mm，z 为度） |
+| `car.move_to_position(target, duration=None, max_velocities=(0.2,0.2,π/3), tolerance=(0.004,0.004,0.02), timeout=30.0)` | PID 闭环移动到绝对位姿 `[x,y,theta]`（m/rad）；连续 20 次到位或超时/千次迭代结束 |
+| `car.move_for(position_offset, duration, max_velocities, tolerance)` | 基于当前位置叠加相对偏移（m/rad）；按当前朝向做平移坐标变换 |
+| `car.offset_by(position_offset, duration, max_velocities, tolerance)` | 相对偏移（x/y 为 mm，z 为度），内部转调 `move_for` |
 
 > 任务里 `car.move_to_position([x, y, z])` 是"走到某个场上坐标"最常用的接口。
+> `move_for([x, y, 0])` / `offset_by([x_mm, y_mm, z_deg])` 则适合"相对当前位置直走 / 横移 / 转向"。
+
+### 1.5 底盘内部对象（一般无需直接操作）
+
+`car.chassis`（MecanumChassis）与 `car.chassis.odometry`（Odometry）提供运动学与位姿数据：
+
+| 对象 / 方法 | 说明 |
+|---|---|
+| `car.chassis.odometry.position` | 位姿数组 `[x, y, theta]`（m/rad），**直接字段，不走锁**，只读场景可用 |
+| `car.chassis.odometry.distance` | 累计行驶路程（m） |
+| `car.chassis.odometry.velocity` | 速度数组（世界系） |
+| `car.chassis.calculate_wheel_velocities(x, y, z)` | 逆解：车速度 → 4 轮线速度 |
+| `car.chassis.forward_kinematics(wheel_vel)` / `inverse_kinematics(car_vel)` | 运动学正 / 逆解 |
+| `car.chassis.update_odometry(disp)` | 按轮子位移更新里程计（由后台线程调用） |
+| `car.wheels_chassis` | `WheelWrap`，`set_linear / get_linear / get_linear_async` 直接控制/读 4 轮 |
+| `car.pid_x / car.pid_y / car.pid_yaw` | 底盘三路 PID（`move_to_position` 使用） |
+
+> 里程计由后台 `update_odometry_thread` 以 ~50Hz 异步更新（`get_linear_async` 读编码器差分），
+> 通过 `car._lock` 保护；`get_odometry/get_distance` 已带锁，任务层直接用即可。
+
+### 1.6 生命周期
+
+| 方法 | 说明 |
+|---|---|
+| `car.stop()` | 底盘速度清零 |
+| `car.close()` | 停里程计线程（`_stop_thread=True` + join） |
+
+---
+
+### 1.7 补充工具（smartcar 顶层已导出，可直接 import）
+
+`MyCar` 已继承了底层全部能力，任务一般无需直接 import 下列工具；它们与 `tasks/tools` 里的自定义封装可互相替代，统一从 `smartcar` 导入即可：
+
+| 工具 | 来源 | 说明 / 可替代的 tools 内实现 |
+|---|---|---|
+| `from smartcar import PID` | `tools/tools_class.py` | 增量式 PID；`PidCal2` 内部就是两个 PID |
+| `from smartcar import get_yaml` | `tools/tools_class.py` | 读 yaml，失败返回 None |
+| `from smartcar import CountRecord` | `tools/tools_class.py` | 计数滤波（连续 N 次相同才 True） |
+| `from smartcar import IndexWrap` | `tools/tools_class.py` | 循环索引器 |
+| `from smartcar import limit_val` | `tools/tools_class.py` | 限幅（`whalesbot.tools.limit_val`） |
+| `from smartcar import logger` | `tools/log_wrap.py` | 滚动日志 |
+| `from smartcar.whalesbot.vehicle import ArmController, MecanumDriver` | driver / arm | 机械臂 / 底盘主类 |
+
+> `smartcar/__init__.py` 已统一 re-export 上表工具，`tasks/tools` 内重复封装时优先引用 smartcar 版本，避免双实现漂移。
 
 ---
 
@@ -139,16 +186,24 @@ car.close()   # 关按键线程 / 摄像头 / 流媒体（写独立脚本务必�
 - **手部舵机**（`hand_servo`，`ServoPwm`，UP/MID/DOWN）
 - **气泵**（`pump`）+ **气阀**（`valve`），即抓取机构
 
+> `ArmController(ArmMotion)`：X/Y 双轴运动能力来自 `arm_motion.py` 的 `ArmMotion` mixin，
+> 手部 / 姿态 / 复位 / 属性接口在 `arm_base.py`。两者组合成完整机械臂 API。
+
 ### 3.1 位姿 / 姿态接口
 
 | 方法 / 属性 | 说明 |
 |---|---|
-| `car.arm.x` / `car.arm.y` | 当前水平 / 竖直位置（mm） |
-| `car.arm.angle` / `car.arm.hand_angle` | 手臂 / 手部舵机当前角度 |
+| `car.arm.x` / `car.arm.y` | 当前水平 / 竖直位置（mm）；**可写**：赋值即移动（内部转调 move_x/y_position） |
+| `car.arm.angle` / `car.arm.hand_angle` | 手臂 / 手部舵机当前角度；**可写** |
 | `car.arm.side` | 机械臂方向 `"LEFT" / "MID" / "RIGHT"` |
 | `car.arm.arm_length` | 机械臂长度（标定值） |
 | `car.arm.x_get_position()` / `car.arm.y_get_position()` | 水平 / 竖直位置（m） |
 | `car.arm.x_pose_now` / `car.arm.y_pose_now` | 当前 X / Y 位姿（m） |
+| `car.arm.x_pose_start` / `car.arm.y_pose_start` | X / Y 零点基准（m） |
+| `car.arm.x_threshold` / `car.arm.y_threshold` | X / Y 移动限位 `[min, max]`（m） |
+| `car.arm.x_velocity_limit` / `car.arm.y_velocity_limit` | X / Y 速度限幅（PID output_limits） |
+| `car.arm.motor_x` / `car.arm.motor_y` | X（MotorWrap）/ Y（StepperWrap）电机对象 |
+| `car.arm.y_limit_sensor` | Y 轴限位传感器（`AnalogInput`，`read()>1000` 视为到限位） |
 
 ### 3.2 同步运动（阻塞，一次完成）
 
@@ -156,7 +211,7 @@ car.close()   # 关按键线程 / 摄像头 / 流媒体（写独立脚本务必�
 |---|---|
 | `car.arm.move_x_position(target, out_time=6.0)` | 水平移到 target（m），PID 闭环，到位/超时/堵转停止 |
 | `car.arm.move_y_position(target)` | 竖直移到 target（m），到位/堵转停止 |
-| `car.arm.goto_position(x=None, y=None, time_run=None, speed=[0.15, 0.04])` | **双轴并发**移动（见 §6），x/y 可只传一个 |
+| `car.arm.goto_position(x=None, y=None, time_run=None, speed=[0.15, 0.04])` | **双轴并发**移动（见 §6），x/y 可只传一个；`time_run` 给运行秒数或 `speed` 自动算时长 |
 | `car.arm.go_for(x_offset, y_offset, time_run=None, speed=[0.15, 0.04])` | 相对当前位置偏移双轴 |
 | `car.arm.set_arm_angle(angle, speed=80)` | 设置手臂角度（`"LEFT"/"MID"/"RIGHT"` 或数字） |
 | `car.arm.set_hand_angle(angle, speed=80)` | 设置手部角度（`"UP"/"MID"/"DOWN"` 或数字） |
@@ -165,6 +220,8 @@ car.close()   # 关按键线程 / 摄像头 / 流媒体（写独立脚本务必�
 | `car.arm.switch_side(side)` | 切换机械臂方向（带 0.5s 等待） |
 | `car.arm.reset_position()` | 复位（Y/X 轴并发复位线程 + 手/臂舵机回正） |
 | `car.arm.set_manually()` | 用 4 键手动控制机械臂 |
+| `car.arm.x_speed(velocity)` / `car.arm.y_speed(velocity)` | 直接设 X / Y 轴速度（内部限幅） |
+| `car.arm.set_position_start(y_position)` | 把当前 X/Y 位置记录为零点基准并保存配置 |
 
 ### 3.3 异步 tick 运动（非阻塞，不独占总线）
 
@@ -470,3 +527,34 @@ car.move_to_position([0.6, 0.4, 0])
 - `move_to_detection_target` 会同时驱动底盘横移和 `car.arm.x_speed`，别和 `move_x_position` 一起用。
 - OCR 已停用（`ocr_rec = None`），`get_ocr` 会直接返回 None；识别名称/订单走文心。
 - 修改机械臂标定常量会改变场上物理行为，除非重新标定，否则不要动。
+- **`set_velocity` 是开环**：直走会因四轮机械/摩擦差异跑偏；要"稳直行 / 稳到点"用 `move_to_position / move_for / offset_by`（带 x/y/yaw PID 闭环）。
+- **`get_distance` 按 `dx,dy 模长之和` 累计**：转弯 / 横移也会计入路程，用它做"直线 2 米"终点判定会被横向位移提前触发，实际前进不足。
+- **机械臂位置是相对的**：`x_pose_now/y_pose_now = 电机位移 - x_pose_start/y_pose_start`，零点由 `reset_position` / `set_position_start` 建立；电机 `get_dis()` 是绝对位移，别直接拿来做目标。
+- **堵转/超时兜底**：X 轴 `move_x_position(out_time=6.0)`、Y 轴 `move_y_position`、双轴 `goto_position` 都有超时/堵转检测（`STOP_CHECK_THRESHOLD` / `RESET_TIMEOUT`），卡住会自动停，不要自己再开无限循环。
+- **异步移动要外部驱动**：`goto_position_async / tick_*` 每次调用只推一 tick，必须放在 `while not ...:` 循环里，否则轴不动。
+
+---
+
+## 11. tasks/tools 与 smartcar 底层可替代对照
+
+`tasks/tools`（MyCar 门面）把 smartcar 底层能力**按比赛用途重新封装**；绝大多数情况下直接调 `car.xxx` 即可，无需 import smartcar。
+下表是**可用 smartcar 底层直接替代**的 items/tools 内实现（避免重复造轮子）：
+
+| tools 内实现（文件 / 类） | 可替代它的 smartcar 底层 | 结论 |
+|---|---|---|
+| `car`（MyCar 门面） | `MecanumDriver` + `MotionMixin` + `PerceptionMixin` | **MyCar 已继承**，无需 import smartcar；直接 `car.xxx` |
+| `car.set_velocity / get_odometry / get_distance / reset_position / stop / close` | `smartcar.whalesbot.vehicle.driver.mecanum.MecanumDriver` 同名方法 | **直接继承**，无重复实现 |
+| `car.move_to_position / move_for / offset_by / move_x / move_y / move_z / offset.x+=...` | 同左（`MecanumDriver`） | **直接继承** |
+| `car.world_to_car_velocity / car_to_world_velocity` | 同左（`MecanumDriver`） | **直接继承** |
+| `car.arm.*`（全部机械臂接口） | `smartcar.whalesbot.vehicle.arm.ArmController`（+ `arm_motion.ArmMotion`） | **直接继承**（`MyCar.arm = ArmController()`） |
+| `car.get_lane_results` / `car.lane_pid` | `smartcar.paddlebaidu.infer_cs.ClintInterface`（"lane" 模型）+ `PidCal2` | **tools 封装**，保留 |
+| `car.get_detection_results` / `car.task_det` | `ClintInterface`（"task" 模型） | **tools 封装**（含排序/画框/缓存），保留 |
+| `car.move_to_detection_target / lane_det_location / det2pose / adjust_arm_position` | 无底层等价 | **tools 独有**（视觉对齐），保留 |
+| `PidCal2`（tasks/tools/pids.py） | `from smartcar import PID`（两个 PID 组合） | **可用 smartcar 直接替代**：`PID` 已在 smartcar 导出 |
+| `CountRecord / get_yaml / limit_val`（tools 内引用） | `from smartcar import CountRecord, get_yaml` / `whalesbot.tools.limit_val` | **可用 smartcar 替代**（同一定义） |
+| `RealtimeMixin`（侧视流/实时检测） | `Streamer` + `ClintInterface` | **tools 封装**，保留 |
+| `OcrErnieMixin`（文心/OCR） | `ErnieBotWrap` / `ClintInterface` | **tools 封装**（OCR 已停用），保留 |
+
+> 结论：**凡是"运动 / 里程计 / 机械臂"能力，tools 层只是透传 smartcar（MyCar 继承）**，
+> 写任务时直接 `car.xxx` 即可；**不要**在 `tasks/tools` 里再写一份 `set_velocity / move_x_position` 之类同名封装。
+> 只有**感知（检测/巡线/视觉对齐/实时流/文心）** 是 tools 层真正的业务封装，smartcar 底层没有对应高能级 API。
