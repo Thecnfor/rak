@@ -50,7 +50,7 @@ class ArmMotion:
         self.y_pose_start = self.motor_y.get_dis()
         self.y_pose_now = 0
         self.y_pid = PID(**pid)
-        self.y_velocity_limit = pid['output_limits']
+        self.y_velocity_limit = pid["output_limits"]
         self.y_distance_change = 0
         self.y_threshold = threshold  # 竖直位置阈值
         self.y_pose_last = 0
@@ -65,7 +65,9 @@ class ArmMotion:
         Returns:
             bool: 是否到达限位
         """
-        return self.y_limit_sensor.read() > 1000  # 磁敏传感器的值大于1000时, 则认为到达限位位置
+        return (
+            self.y_limit_sensor.read() > 1000
+        )  # 磁敏传感器的值大于1000时, 则认为到达限位位置
 
     def y_stop_check(self):
         """
@@ -74,14 +76,10 @@ class ArmMotion:
         Returns:
             bool: 是否停止
         """
-        return self.y_stop_flag(
-            abs(self.y_distance_change) < STOP_CHECK_THRESHOLD
-        )
+        return self.y_stop_flag(abs(self.y_distance_change) < STOP_CHECK_THRESHOLD)
 
     def y_get_position(self):
-        self.y_pose_now = (
-            self.motor_y.get_dis() - self.y_pose_start
-        )
+        self.y_pose_now = self.motor_y.get_dis() - self.y_pose_start
         return self.y_pose_now
 
     def y_pid_moveto(self, target_pose):
@@ -95,12 +93,8 @@ class ArmMotion:
             bool: 是否到达目标位置
         """
         # 记录当前位置, 并更新上次的位置
-        self.y_pose_now = (
-            self.motor_y.get_dis() - self.y_pose_start
-        )
-        self.y_distance_change = (
-            self.y_pose_now - self.y_pose_last
-        )
+        self.y_pose_now = self.motor_y.get_dis() - self.y_pose_start
+        self.y_distance_change = self.y_pose_now - self.y_pose_last
         self.y_pose_last = self.y_pose_now
 
         error = target_pose - self.y_pose_now
@@ -174,9 +168,14 @@ class ArmMotion:
         """异步设置竖直轴速度(发命令不等应答), 减少总线占用。"""
         velocity = limit_val(velocity, *self.y_velocity_limit)
         try:
-            stepper = getattr(self.motor_y, 'stepper', None)
-            if stepper is not None and hasattr(stepper, 'set_async'):
-                pwm = int(velocity * self.motor_y.dis2rad * self.motor_y.rad2pwm * self.motor_y.reverse)
+            stepper = getattr(self.motor_y, "stepper", None)
+            if stepper is not None and hasattr(stepper, "set_async"):
+                pwm = int(
+                    velocity
+                    * self.motor_y.dis2rad
+                    * self.motor_y.rad2pwm
+                    * self.motor_y.reverse
+                )
                 stepper.set_async(pwm)
             else:
                 self.y_speed(velocity)
@@ -197,7 +196,7 @@ class ArmMotion:
         # 定义水平移动电机,PID参数
         self.motor_x = MotorWrap(**motor)
         self.x_pid = PID(**pid)
-        self.x_velocity_limit = pid['output_limits']
+        self.x_velocity_limit = pid["output_limits"]
         self.x_pose_start = self.motor_x.get_dis()
         self.x_pose_now = 0
         self.x_threshold = threshold
@@ -215,9 +214,7 @@ class ArmMotion:
         Returns:
             bool: 是否停止
         """
-        return self.x_stop_flag(
-            abs(self.x_distance_change) < STOP_CHECK_THRESHOLD
-        )
+        return self.x_stop_flag(abs(self.x_distance_change) < STOP_CHECK_THRESHOLD)
 
     def x_get_position(self):
         self.x_pose_now = self.motor_x.get_dis() - self.x_pose_start
@@ -233,12 +230,8 @@ class ArmMotion:
         Returns:
             bool: 是否到达目标位置
         """
-        self.x_pose_now = (
-            self.motor_x.get_dis() - self.x_pose_start
-        )
-        self.x_distance_change = (
-            self.x_pose_now - self.x_pose_last
-        )
+        self.x_pose_now = self.motor_x.get_dis() - self.x_pose_start
+        self.x_distance_change = self.x_pose_now - self.x_pose_last
         self.x_pose_last = self.x_pose_now
         error = target_pose - self.x_pose_now
 
@@ -305,8 +298,8 @@ class ArmMotion:
         velocity = limit_val(velocity, *self.x_velocity_limit)
         try:
             # motor_x 为 MotorWrap, 其 .motor 为 Motor(内部有 motor_2 = Motor_2, 支持异步设速)
-            motor2 = getattr(getattr(self.motor_x, 'motor', None), 'motor_2', None)
-            if motor2 is not None and hasattr(motor2, 'set_speed_async'):
+            motor2 = getattr(getattr(self.motor_x, "motor", None), "motor_2", None)
+            if motor2 is not None and hasattr(motor2, "set_speed_async"):
                 angular = velocity * self.motor_x.dis2rad
                 sp_virtual = int(self.motor_x.motor.rad2virtual * angular)
                 motor2.set_speed_async(sp_virtual)
@@ -364,16 +357,8 @@ class ArmMotion:
         """
 
         # 控制上下限
-        x_pos = limit_val(
-            x,
-            self.x_threshold[0],
-            self.x_threshold[1]
-        )
-        y_pos = limit_val(
-            y,
-            self.y_threshold[0],
-            self.y_threshold[1]
-        )
+        x_pos = limit_val(x, self.x_threshold[0], self.x_threshold[1])
+        y_pos = limit_val(y, self.y_threshold[0], self.y_threshold[1])
 
         # 获取结束时间和对应速度
         time_start = time.time()
@@ -394,12 +379,8 @@ class ArmMotion:
             else:
                 logger.error("Invalid speed argument")
                 return
-            x_time = abs(
-                x_pos - self.x_pose_now
-            ) / speed_x
-            y_time = abs(
-                y_pos - self.y_pose_now
-            ) / speed_y
+            x_time = abs(x_pos - self.x_pose_now) / speed_x
+            y_time = abs(y_pos - self.y_pose_now) / speed_y
             time_run = max(x_time, y_time)
         else:
             logger.error("Either time_run or speed must be provided")
@@ -423,9 +404,7 @@ class ArmMotion:
             speed_y = 0.1
             y_flag = True
         else:
-            speed_y = abs(
-                y_pos - self.y_pose_now
-            ) / y_time
+            speed_y = abs(y_pos - self.y_pose_now) / y_time
 
         self.y_pid.setpoint = y_pos
         self.y_pid.output_limits = (-speed_y, speed_y)
@@ -434,14 +413,10 @@ class ArmMotion:
             speed_x = 0.1
             x_flag = True
         else:
-            speed_x = abs(
-                x_pos - self.x_pose_now
-            ) / x_time
+            speed_x = abs(x_pos - self.x_pose_now) / x_time
 
         self.x_pid.setpoint = x_pos
-        self.x_pid.output_limits = (
-            -speed_x, speed_x
-        )
+        self.x_pid.output_limits = (-speed_x, speed_x)
 
         # 开始移动前, 位置信息定义, 如果中间中断此时位置信息无用
         self.save_config(pose_enable=False)
@@ -481,7 +456,9 @@ class ArmMotion:
         self.save_config()
 
     # ==================== 异步 tick 移动(配合异步串口引擎, 不阻塞主流程) ====================
-    def goto_position_async(self, x=None, y=None, time_run=None, speed=[0.15, 0.04], tick_interval=0.02):
+    def goto_position_async(
+        self, x=None, y=None, time_run=None, speed=[0.15, 0.04], tick_interval=0.02
+    ):
         """非阻塞版 goto_position: 由调用方在事件循环/主循环中周期性驱动。
         每次调用执行一个 tick(双轴各发一条异步速度命令), 全部到位返回 True。
         保持与 goto_position 相同的目标/限位/速度语义, 但单次调用立即返回, 不独占总线。
@@ -491,16 +468,16 @@ class ArmMotion:
                 time.sleep(0.02)   # 期间可穿插底盘/感知命令
         """
         # 首次调用时初始化目标与速度(与 goto_position 一致)
-        if not hasattr(self, '_async_plan') or self._async_plan is None:
+        if not hasattr(self, "_async_plan") or self._async_plan is None:
             if self._init_async_plan(x, y, time_run, speed) is None:
                 # 参数非法, 直接返回视为完成
                 return True
         plan = self._async_plan
         # 双轴各驱动一 tick
-        done_x = True if plan['x'] is None else self.tick_x_moveto(plan['x'])
-        done_y = True if plan['y'] is None else self.tick_y_moveto(plan['y'])
+        done_x = True if plan["x"] is None else self.tick_x_moveto(plan["x"])
+        done_y = True if plan["y"] is None else self.tick_y_moveto(plan["y"])
         # 超时兜底
-        if time.time() - plan['t0'] > plan['timeout']:
+        if time.time() - plan["t0"] > plan["timeout"]:
             self.x_speed(0)
             self.y_speed(0)
             self._async_plan = None
@@ -516,8 +493,16 @@ class ArmMotion:
 
     def _init_async_plan(self, x, y, time_run, speed):
         """初始化异步移动计划(目标/速度/超时), 与 goto_position 的限位与速度逻辑一致。"""
-        x_pos = limit_val(x, self.x_threshold[0], self.x_threshold[1]) if x is not None else None
-        y_pos = limit_val(y, self.y_threshold[0], self.y_threshold[1]) if y is not None else None
+        x_pos = (
+            limit_val(x, self.x_threshold[0], self.x_threshold[1])
+            if x is not None
+            else None
+        )
+        y_pos = (
+            limit_val(y, self.y_threshold[0], self.y_threshold[1])
+            if y is not None
+            else None
+        )
         if time_run is not None:
             assert isinstance(time_run, (int, float)), "Time must be a number"
             x_time = y_time = time_run
@@ -552,8 +537,10 @@ class ArmMotion:
             self.x_pid.output_limits = (-speed_x, speed_x)
 
         self._async_plan = {
-            'x': x_pos, 'y': y_pos,
-            't0': time.time(), 'timeout': time_run_ + 3.0,
+            "x": x_pos,
+            "y": y_pos,
+            "t0": time.time(),
+            "timeout": time_run_ + 3.0,
         }
 
     def cancel_async_move(self):

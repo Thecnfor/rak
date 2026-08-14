@@ -53,7 +53,9 @@ class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
         self.arm = ArmController()
 
         # 获取自己文件所在的目录路径
-        self.path_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        self.path_dir = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..")
+        )
         self.yaml_path = os.path.join(self.path_dir, "config_car.yml")
         # 获取配置
         cfg = get_yaml(self.yaml_path)
@@ -81,7 +83,6 @@ class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
 
         self.beep()
 
-
     def beep(self):
         """
         发出蜂鸣音
@@ -89,8 +90,6 @@ class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
         控制蜂鸣器发出一声蜂鸣音，并等待0.2秒。
         """
         self.ring.rings()
-        time.sleep(0.2)
-
 
     def sensor_init(self, cfg):
         """
@@ -115,7 +114,6 @@ class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
         self.blue_pad = BluetoothPad()
         self.shoot = PoutD(4)
 
-
     def set_storage(self, state=False):
         """
         设置储存仓的位置
@@ -128,13 +126,11 @@ class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
         flag = 1 if state else 0
         self.servo_1.set_angle(self.servo_1_angle_list[flag])
 
-
     def shooting(self):
         self.shoot.set(1)
         time.sleep(0.3)
         self.shoot.set(0)
         time.sleep(0.5)
-
 
     def car_pid_init(self, cfg):
         """
@@ -147,7 +143,6 @@ class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
         """
         self.lane_pid = PidCal2(**cfg["lane_pid"])
         self.det_pid = PidCal2(**cfg["det_pid"])
-
 
     def camera_init(self, cfg):
         """
@@ -162,7 +157,6 @@ class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
         self.cap_front = Camera(cfg["camera"]["front"])
         # 侧面摄像头
         self.cap_side = Camera(cfg["camera"]["side"])
-
 
     def delay(self, time_hold):
         """
@@ -180,7 +174,6 @@ class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
             if time.time() - start_time > time_hold:
                 break
 
-
     def key_thread_func(self):
         """
         按键检测线程
@@ -196,7 +189,6 @@ class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
                 if key_val == 3:
                     self._stop_flag = True
                 time.sleep(0.2)
-
 
     def close(self):
         """

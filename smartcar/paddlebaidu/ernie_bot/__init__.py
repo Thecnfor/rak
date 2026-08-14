@@ -1,1 +1,7 @@
-from .base.ernie_bot_wrap import ErnieBotWrap, HumAttrPrompt, ActionPrompt, ImagePrompt, OrderPrompt
+from .base.ernie_bot_wrap import (
+    ErnieBotWrap,
+    HumAttrPrompt,
+    ActionPrompt,
+    ImagePrompt,
+    OrderPrompt,
+)

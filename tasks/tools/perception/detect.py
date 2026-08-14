@@ -7,6 +7,7 @@ import cv2
 
 from smartcar import logger
 
+
 class DetectMixin:
 
     # 巡线滤波系数(一阶低通 EMA, 0~1, 越大越跟随, 越小越平滑)
@@ -15,7 +16,6 @@ class DetectMixin:
     _lane_last = (0.0, 0.0)
     # 单次推理异常允许的最大时长(秒), 超时则按无误差直行处理
     _lane_timeout = 0.3
-
 
     def get_detection_results(
         self, sort_pos=(0, 0), limit_x=1, limit_y=1
@@ -43,7 +43,6 @@ class DetectMixin:
             self._det_cache = (time.time(), det_task)
         # print(det_task)
         return det_task
-
 
     def get_lane_results(self):
         """获取滤波后的巡线结果。
@@ -88,15 +87,28 @@ class DetectMixin:
                 if dx == 0 and dy == 0:
                     continue
                 cv2.putText(
-                    image, label_text, (org[0] + dx, org[1] + dy),
-                    cv2.FONT_HERSHEY_TRIPLEX, 1.0, (0, 0, 0), 1, cv2.LINE_AA)
+                    image,
+                    label_text,
+                    (org[0] + dx, org[1] + dy),
+                    cv2.FONT_HERSHEY_TRIPLEX,
+                    1.0,
+                    (0, 0, 0),
+                    1,
+                    cv2.LINE_AA,
+                )
         cv2.putText(
-            image, label_text, org,
-            cv2.FONT_HERSHEY_TRIPLEX, 1.0, (0, 255, 0), 1, cv2.LINE_AA)
+            image,
+            label_text,
+            org,
+            cv2.FONT_HERSHEY_TRIPLEX,
+            1.0,
+            (0, 255, 0),
+            1,
+            cv2.LINE_AA,
+        )
         self.streamer.update_frame(image, "cam1")
         # print(label_text)
         return error, angle
-
 
     def get_target_location(self, det):
         """
@@ -143,7 +155,6 @@ class DetectMixin:
         loc_y = y + arm_y + length
 
         return loc_x, loc_y
-
 
     def draw_detection_results(self, img, dets_ret):
         """

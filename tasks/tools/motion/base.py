@@ -5,6 +5,7 @@ import math
 # 方法默认参数用到的停止标志默认值(与 MyCar.STOP_PARAM 类属性保持一致)
 STOP_PARAM = True
 
+
 class MoveMixin:
     def move_base(self, sp, end_fuction, stop=STOP_PARAM):
         """

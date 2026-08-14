@@ -9,11 +9,11 @@ import zmq
 
 from smartcar.whalesbot.tools import logger
 
+
 class RealtimeMixin:
 
     # 侧视实时流: 始终推画面, 检测线程每 0.5s 跑一次检测, 有目标就叠框
     _side_stream_flag = False
-
 
     def start_side_stream(self):
         """启动侧视(cam2)实时检测 + 实时推流两个线程, 由 MyCar 初始化时调用。"""
@@ -22,16 +22,16 @@ class RealtimeMixin:
         RealtimeMixin._side_stream_flag = True
         self._init_realtime_cache()
         threading.Thread(
-            target=self._side_detect_loop, name="side_detect", daemon=True).start()
+            target=self._side_detect_loop, name="side_detect", daemon=True
+        ).start()
         threading.Thread(
-            target=self._side_stream_loop, name="side_stream", daemon=True).start()
-
+            target=self._side_stream_loop, name="side_stream", daemon=True
+        ).start()
 
     def _init_realtime_cache(self):
         """初始化实时检测结果缓存(检测线程来一帧推一帧)。"""
         self._det_lock = threading.Lock()
         self._det_cache = None  # (timestamp, dets)
-
 
     def get_realtime_detections(self, fresh=False, max_age=None):
         """实时获取侧视 task 检测结果。
@@ -72,7 +72,6 @@ class RealtimeMixin:
             return []
         return dets
 
-
     def get_realtime_side_frame(self, with_overlay=True):
         """获取侧视最新画面; with_overlay 时在最新帧上实时叠加检测框。"""
         cache = self._get_det_cache()
@@ -81,7 +80,6 @@ class RealtimeMixin:
             return raw
         return self.draw_detection_results(raw, cache[1])
 
-
     def _get_det_cache(self):
         lock = getattr(self, "_det_lock", None)
         if lock is None:
@@ -89,7 +87,6 @@ class RealtimeMixin:
             lock = self._det_lock
         with lock:
             return self._det_cache
-
 
     def _side_detect_client(self):
         """创建独立于任务检测的 ZMQ 客户端(避免共享 socket 的线程竞争)。"""
@@ -105,7 +102,6 @@ class RealtimeMixin:
             pass
         return sock
 
-
     def _side_detect(self, sock, raw):
         """在侧视图上跑一次检测, 返回 [cls,obj,label,score, nx,ny,nw,nh] 列表。"""
         ok, buf = cv2.imencode(".jpg", raw)
@@ -114,7 +110,6 @@ class RealtimeMixin:
         sock.send(b"image" + buf.tobytes())
         res = json.loads(sock.recv())
         return res if isinstance(res, list) else []
-
 
     def _side_detect_loop(self):
         # 实时连续推理: 拿最新帧背靠背检测(节奏由推理速度决定, 无固定轮询)。
@@ -142,7 +137,6 @@ class RealtimeMixin:
                     sock = None
             except Exception as e:
                 logger.warning(f"侧视检测线程异常: {e}")
-
 
     def _side_stream_loop(self):
         # 事件驱动实时推流: 摄像头每抓一帧即被 frame_ready 唤醒并立即发布。

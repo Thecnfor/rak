@@ -30,14 +30,14 @@ class AsyncSerialEngine:
     def __init__(self, ser):
         self.ser = ser
         self._lock = Lock()
-        self._pending = {}          # seq -> [Event, result, matched_frame, callback]
+        self._pending = {}  # seq -> [Event, result, matched_frame, callback]
         self._callbacks = defaultdict(list)  # (dev_id, mode, port) -> [callback]
         self._seq = 0
         self._rx_buf = bytearray()
         self._rx_start = 0
         self._thread = None
         self._closed = False
-        self._paused = False        # 固件下载等独占阶段暂停读线程
+        self._paused = False  # 固件下载等独占阶段暂停读线程
         self._pause_evt = None
 
     # ---------- 生命周期 ----------
@@ -164,9 +164,15 @@ class AsyncSerialEngine:
     def _dispatch(self):
         """从 rx 缓冲切出所有完整帧并分发。"""
         dev = getattr(self.ser, "dev", None)
-        parse = dev.parse_stream if (dev is not None and hasattr(dev, "parse_stream")) else parse_mc_stream
+        parse = (
+            dev.parse_stream
+            if (dev is not None and hasattr(dev, "parse_stream"))
+            else parse_mc_stream
+        )
         while True:
-            payload, start = parse(bytes(self._rx_buf), self._rx_start, len(self._rx_buf))
+            payload, start = parse(
+                bytes(self._rx_buf), self._rx_start, len(self._rx_buf)
+            )
             if payload is None:
                 if start > self._rx_start:
                     # 跳过了脏字节, 收缩缓冲
@@ -181,7 +187,7 @@ class AsyncSerialEngine:
     def _handle_frame(self, payload: bytes):
         """按应答/上报分发。payload 形如 <dev_id> <mode> <port> <data...>。"""
         if len(payload) < 3:
-            logger.warning("收到过短帧: {}".format(payload.hex(' ')))
+            logger.warning("收到过短帧: {}".format(payload.hex(" ")))
             return
         dev_id, mode, port = payload[0], payload[1], payload[2]
         # 1) 优先唤醒 pending(先到先得, 匹配最早等待者; 单 fd 一问一答天然 FIFO)

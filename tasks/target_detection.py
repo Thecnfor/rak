@@ -1,5 +1,6 @@
 import time
 
+
 def run(car) -> list:
 
     animal_list = [0, 0, 0, 0]

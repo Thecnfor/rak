@@ -3,8 +3,8 @@
 from smartcar.paddlebaidu.ernie_bot import ErnieBotWrap, OrderPrompt
 from smartcar.paddlebaidu.infer_cs import ClintInterface
 
-class InferInitMixin:
 
+class InferInitMixin:
 
     def paddle_infer_init(self):
         """
@@ -23,7 +23,6 @@ class InferInitMixin:
         self.ocr_rec = None
         # 识别为None
         self.last_det = None
-
 
     def ernie_bot_init(self):
         """

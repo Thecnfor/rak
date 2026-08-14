@@ -20,11 +20,12 @@ try:
 except ImportError:
     from camera import Camera
 
+
 class Streamer:
     """
     MJPEG 视频流媒体类（支持多路摄像头 + 键盘事件捕获）
     """
-    
+
     _instances = {}  # 记录已启动的实例，避免端口冲突
 
     def __init__(self, port=5000, fps=30, quality=80):
@@ -36,9 +37,10 @@ class Streamer:
         self.app = Flask(__name__)
         # 关闭 Flask 访问日志（不显示 GET /video_feed 等信息）
         import logging
-        log = logging.getLogger('werkzeug')
+
+        log = logging.getLogger("werkzeug")
         log.setLevel(logging.ERROR)
-        
+
         self.server_thread = None
         self.running = False
         self._server = None
@@ -54,12 +56,13 @@ class Streamer:
 
     def _setup_routes(self):
         """设置 Flask 路由"""
-        @self.app.route('/')
+
+        @self.app.route("/")
         def index():
             # 现代化界面设计 + 右上角固定按键反馈面板
             svg = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' fill='none'%3E%3Crect width='32' height='32' rx='4' fill='%231a1a2e'/%3E%3Cpath fill='%2300d4ff' d='M9 10h14l-1.5 6H10.5L9 10z'/%3E%3Crect x='7' y='16' width='18' height='8' rx='1.5' fill='%2330cfd0'/%3E%3Ccircle cx='10' cy='22' r='2.5' fill='%2300ff88'/%3E%3Ccircle cx='22' cy='22' r='2.5' fill='%2300ff88'/%3E%3Ccircle cx='16' cy='13' r='1.5' fill='%2300ff88'/%3E%3Cpath stroke='%2300d4ff' stroke-width='1.5' d='M16 8V6'/%3E%3Cpath stroke='%2300d4ff' stroke-width='1.5' d='M19 11.5l1.5-1.5'/%3E%3Cpath stroke='%2300d4ff' stroke-width='1.5' d='M13 11.5l-1.5-1.5'/%3E%3C/svg%3E"
 
-            return f'''
+            return f"""
             <html lang="zh-CN">
                 <head>
                     <meta charset="UTF-8">
@@ -312,42 +315,46 @@ class Streamer:
                     </script>
                 </body>
             </html>
-            '''
+            """
 
         # 支持通过 cam_id 区分不同摄像头的视频流
-        @self.app.route('/video_feed/<cam_id>')
+        @self.app.route("/video_feed/<cam_id>")
         def video_feed(cam_id):
-            return Response(self._generate_frames(cam_id), 
-                          mimetype='multipart/x-mixed-replace; boundary=frame')
+            return Response(
+                self._generate_frames(cam_id),
+                mimetype="multipart/x-mixed-replace; boundary=frame",
+            )
 
-        @self.app.route('/health')
+        @self.app.route("/health")
         def health():
-            return {'status': 'running' if self.running else 'stopped', 
-                    'active_cams': list(self.frames.keys()),
-                    'port': self.port}
+            return {
+                "status": "running" if self.running else "stopped",
+                "active_cams": list(self.frames.keys()),
+                "port": self.port,
+            }
 
         # 支持清空指定摄像头或所有摄像头的帧
-        @self.app.route('/clear')
+        @self.app.route("/clear")
         def clear():
-            cam_id = request.args.get('cam_id')
+            cam_id = request.args.get("cam_id")
             with self.frame_lock:
                 if cam_id:
                     if cam_id in self.frames:
                         del self.frames[cam_id]
                 else:
                     self.frames.clear()
-            return {'status': 'cleared', 'cam_id': cam_id or 'all'}
+            return {"status": "cleared", "cam_id": cam_id or "all"}
 
         # 接收按键的接口
-        @self.app.route('/keypress', methods=['POST'])
+        @self.app.route("/keypress", methods=["POST"])
         def keypress():
             data = request.get_json()
-            if data and 'key' in data:
-                key = data['key']
+            if data and "key" in data:
+                key = data["key"]
                 with self.key_lock:
                     self.last_key = key
-                return jsonify({'status': 'ok', 'received': key})
-            return jsonify({'status': 'error', 'message': 'Invalid data'}), 400
+                return jsonify({"status": "ok", "received": key})
+            return jsonify({"status": "error", "message": "Invalid data"}), 400
 
     def _generate_frames(self, cam_id):
         """生成器：根据 cam_id 输出对应摄像头的 JPEG 帧"""
@@ -361,27 +368,42 @@ class Streamer:
             with self.frame_lock:
                 frame = self.frames.get(cam_id)  # 从字典获取指定摄像头的帧
                 if frame is not None:
-                    ret, buffer = cv2.imencode('.jpg', frame, 
-                                              [int(cv2.IMWRITE_JPEG_QUALITY), self.quality])
+                    ret, buffer = cv2.imencode(
+                        ".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), self.quality]
+                    )
                     if ret:
                         frame_bytes = buffer.tobytes()
                         last_frame_time = current_time
-                        yield (b'--frame\r\n'
-                              b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+                        yield (
+                            b"--frame\r\n"
+                            b"Content-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
+                        )
                 else:
                     # 无信号时显示等待画面（标注摄像头 ID）
                     blank = np.zeros((480, 640, 3), dtype=np.uint8)
-                    cv2.putText(blank, f'Waiting for {cam_id}...', (180, 240), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                    ret, buffer = cv2.imencode('.jpg', blank)
+                    cv2.putText(
+                        blank,
+                        f"Waiting for {cam_id}...",
+                        (180, 240),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7,
+                        (255, 255, 255),
+                        2,
+                    )
+                    ret, buffer = cv2.imencode(".jpg", blank)
                     if ret:
-                        yield (b'--frame\r\n'
-                              b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+                        yield (
+                            b"--frame\r\n"
+                            b"Content-Type: image/jpeg\r\n\r\n"
+                            + buffer.tobytes()
+                            + b"\r\n"
+                        )
             time.sleep(0.01)
 
     def _run_server(self):
         from werkzeug.serving import make_server
-        self._server = make_server('0.0.0.0', self.port, self.app, threaded=True)
+
+        self._server = make_server("0.0.0.0", self.port, self.app, threaded=True)
         self._server.serve_forever()
 
     def start(self):
@@ -401,10 +423,12 @@ class Streamer:
         time.sleep(0.5)
         Streamer._instances[self.port] = self
         self.show_local_info()
-        
+
     def show_local_info(self):
         ip = self._get_local_ip()
-        print(f"\n📡 双路流媒体服务已启动-打开链接访问:\n\t http://{ip}:{self.port}/ \n")
+        print(
+            f"\n📡 双路流媒体服务已启动-打开链接访问:\n\t http://{ip}:{self.port}/ \n"
+        )
 
     def stop(self):
         """停止流媒体服务"""
@@ -469,9 +493,9 @@ class Streamer:
         self.stop()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     print("🧪 测试双路 MJPEG 流媒体（页面右上角按键反馈版）...")
-    
+
     # 1. 初始化两个摄像头（index=1对应/dev/cam1，index=2对应/dev/cam2）
     try:
         print("正在初始化摄像头 1 (/dev/cam1)...")
@@ -483,25 +507,42 @@ if __name__ == '__main__':
         print("   将使用测试图像代替...")
         # 生成测试图像备用
         test_img1 = np.zeros((480, 640, 3), dtype=np.uint8)
-        cv2.putText(test_img1, 'Camera 1 (/dev/cam1)', (120, 240), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        cv2.putText(
+            test_img1,
+            "Camera 1 (/dev/cam1)",
+            (120, 240),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1,
+            (0, 255, 0),
+            2,
+        )
         test_img2 = np.zeros((480, 640, 3), dtype=np.uint8)
-        cv2.putText(test_img2, 'Camera 2 (/dev/cam2)', (120, 240), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+        cv2.putText(
+            test_img2,
+            "Camera 2 (/dev/cam2)",
+            (120, 240),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1,
+            (0, 255, 255),
+            2,
+        )
+
         class DummyCamera:
             def __init__(self, img):
                 self.img = img
+
             def read(self):
                 return self.img
+
             def close(self):
                 pass
 
         cap1 = DummyCamera(test_img1)
         cap2 = DummyCamera(test_img2)
-    
+
     # 2. 初始化单端口流媒体服务
     streamer = Streamer(port=5000, fps=30)
-    
+
     try:
         frame_count = 0
         while True:
@@ -509,25 +550,39 @@ if __name__ == '__main__':
             key = streamer.get_key()
             if key:
                 print(f"用户按下了: {key}")
-                if key == 'q':
+                if key == "q":
                     print("收到退出指令...")
                     break
 
             # 4. 读取两个摄像头的纯净画面（无额外绘制）
             frame1 = cap1.read()
             frame2 = cap2.read()
-            
+
             # 仅保留画面左上角的帧计数，不添加其他内容
             if frame1 is not None:
-                cv2.putText(frame1, f'/dev/cam1 | Frame: {frame_count}', (20, 30), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                streamer.update_frame( frame1,'cam1')
-            
+                cv2.putText(
+                    frame1,
+                    f"/dev/cam1 | Frame: {frame_count}",
+                    (20, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (0, 255, 0),
+                    2,
+                )
+                streamer.update_frame(frame1, "cam1")
+
             if frame2 is not None:
-                cv2.putText(frame2, f'/dev/cam2 | Frame: {frame_count}', (20, 30), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-                streamer.update_frame( frame2,'cam2')
-            
+                cv2.putText(
+                    frame2,
+                    f"/dev/cam2 | Frame: {frame_count}",
+                    (20, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (0, 255, 255),
+                    2,
+                )
+                streamer.update_frame(frame2, "cam2")
+
             frame_count += 1
             time.sleep(0.033)  # 约 30 FPS
     except KeyboardInterrupt:

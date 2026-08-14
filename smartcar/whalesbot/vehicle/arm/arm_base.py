@@ -21,15 +21,13 @@ from typing import Union
 dir_this = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(dir_this)
 # 添加上两层目录
-dir_root = os.path.abspath(os.path.join(dir_this, '..', '..'))
+dir_root = os.path.abspath(os.path.join(dir_this, "..", ".."))
 sys.path.append(dir_root)
 
 # 导入自定义模块
 from ...tools import get_yaml, limit_val, CountRecord, PID, logger
-from .. import (
-    AnalogInput, MotorWrap, Key4Btn, ServoPwm,
-    ServoBus, StepperWrap, PoutD
-)
+from .. import AnalogInput, MotorWrap, Key4Btn, ServoPwm, ServoBus, StepperWrap, PoutD
+
 # XY 轴运动能力(mixin)
 from .arm_motion import (
     ArmMotion,
@@ -40,8 +38,8 @@ from .arm_motion import (
 
 # 常量定义(转发自 arm_motion, 保持外部引用兼容)
 POSITION_ERROR_THRESHOLD = POSITION_ERROR_THRESHOLD  # 位置误差阈值
-STOP_CHECK_THRESHOLD = STOP_CHECK_THRESHOLD          # 停止检查阈值
-RESET_TIMEOUT = RESET_TIMEOUT                        # 复位超时(秒)
+STOP_CHECK_THRESHOLD = STOP_CHECK_THRESHOLD  # 停止检查阈值
+RESET_TIMEOUT = RESET_TIMEOUT  # 复位超时(秒)
 
 
 def get_path_relative(*args):
@@ -69,10 +67,10 @@ class ArmController(ArmMotion):
         """
         self.yaml_path = get_path_relative("arm_cfg.yaml")
 
-        with open(self.yaml_path, 'r') as f:
+        with open(self.yaml_path, "r") as f:
             self.config = yaml.load(f, Loader=yaml.FullLoader)
 
-        '''机械臂的长度'''
+        """机械臂的长度"""
         self.arm_length: float = self.config["arm_length"]
         # 初始化各部分参数(先 XY 轴以建立 motor_y/motor_x, 再手部, 最后位姿)
         self.y_params_init(**self.config["vert_cfg"])
@@ -117,13 +115,9 @@ class ArmController(ArmMotion):
             side: 方向
         """
         self.pose_enable = pose_enable
-        self.y_pose_start = (
-            self.motor_y.get_dis() - pose_vert
-        )
+        self.y_pose_start = self.motor_y.get_dis() - pose_vert
         self.y_pose_now = pose_vert
-        self.x_pose_start = (
-            self.motor_x.get_dis() - pose_horiz
-        )
+        self.x_pose_start = self.motor_x.get_dis() - pose_horiz
         self.x_pose_now = pose_horiz
         self.side = side
 
@@ -138,9 +132,9 @@ class ArmController(ArmMotion):
             "pose_enable": pose_enable,
             "pose_horiz": self.x_pose_now,
             "pose_vert": self.y_pose_now,
-            "side": self.side
+            "side": self.side,
         }
-        with open(self.yaml_path, 'w') as stream:
+        with open(self.yaml_path, "w") as stream:
             yaml.dump(self.config, stream, sort_keys=False)
 
     def set_manually(self):
@@ -209,7 +203,11 @@ class ArmController(ArmMotion):
         _angle = angle
         if isinstance(_angle, str):
             self.side = _angle
-            assert _angle in ("LEFT", "MID", "RIGHT"), "Direction should be LEFT, MID, or RIGHT"
+            assert _angle in (
+                "LEFT",
+                "MID",
+                "RIGHT",
+            ), "Direction should be LEFT, MID, or RIGHT"
             _angle = self.hand_angle_list[_angle]
         self._arm_angle_last = _angle
         self.arm_servo.set_angle(_angle, speed)
@@ -223,13 +221,17 @@ class ArmController(ArmMotion):
             speed: 速度
         """
         if isinstance(angle, str):
-            assert angle in ("UP", "MID", "DOWN"), "Direction should be UP, MID, or DOWN"
+            assert angle in (
+                "UP",
+                "MID",
+                "DOWN",
+            ), "Direction should be UP, MID, or DOWN"
             angle = self.hand_angle_list2[angle]
         self._hand_angle_last = angle
         self.hand_servo.set_angle(angle, speed)
 
     def set_arm_pose(self, x=None, y=None, arm=None, hand=None):
-        '''
+        """
         设置机械臂的位位姿
 
         Args:
@@ -238,7 +240,7 @@ class ArmController(ArmMotion):
             arm: 手臂角度，可以是字符串（"LEFT", "MID", "RIGHT"）或数字
             hand: 手部角度，可以是字符串（"UP", "MID", "DOWN"）或数字
 
-        '''
+        """
         self.goto_position(x, y)
         # time.sleep(0.2)
         if arm is not None:
@@ -271,7 +273,7 @@ class ArmController(ArmMotion):
     @property
     def angle(self) -> float:
         """获取手臂舵机当前角度"""
-        return self._arm_angle_last if hasattr(self, '_arm_angle_last') else 0
+        return self._arm_angle_last if hasattr(self, "_arm_angle_last") else 0
 
     @angle.setter
     def angle(self, val: Union[str, int]):
@@ -281,7 +283,7 @@ class ArmController(ArmMotion):
     @property
     def hand_angle(self) -> float:
         """获取手部舵机当前角度"""
-        return self._hand_angle_last if hasattr(self, '_hand_angle_last') else 0
+        return self._hand_angle_last if hasattr(self, "_hand_angle_last") else 0
 
     @hand_angle.setter
     def hand_angle(self, val: Union[str, int]):
@@ -289,5 +291,5 @@ class ArmController(ArmMotion):
         self.set_hand_angle(val)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     arm = ArmController()

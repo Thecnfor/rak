@@ -1,5 +1,6 @@
 import time
 
+
 def find_name(car, name="name"):
     name_list = []
     for i in range(3):
@@ -8,7 +9,7 @@ def find_name(car, name="name"):
         dets = car.get_detection_results(sort_pos=(0, 0.5), limit_x=0.3)
         for j, det in enumerate(dets):
             text = car.get_det_ocr(det)
-            print(f'第{i}列第{j}行的姓名：{text}')
+            print(f"第{i}列第{j}行的姓名：{text}")
             time.sleep(5)
             if text == name:
                 return i, j  # i为0 是下层，为上层
@@ -19,10 +20,9 @@ def find_name(car, name="name"):
 def run(car, order_list=None):
     if order_list is None:
         order_list = [
-        {"name": "李四", "goods": "芹菜", "address": 2},
-        {"name": "钱七", "goods": "青椒", "address": 2},
+            {"name": "李四", "goods": "芹菜", "address": 2},
+            {"name": "钱七", "goods": "青椒", "address": 2},
         ]
-
 
     car.lane_dis_offset(speed=0.3, dis_hold=3.25)
 
@@ -50,7 +50,7 @@ def run(car, order_list=None):
         # 调节识别高度
         car.arm.move_y_position(0.13)
         car.arm.move_x_position(0.3)
-        car.arm.set_arm_pose(arm="LEFT", hand='UP')
+        car.arm.set_arm_pose(arm="LEFT", hand="UP")
 
         _x, y = find_name(car, order["name"])
         car.arm.set_arm_pose(arm="RIGHT", hand="DOWN")
@@ -68,7 +68,7 @@ def run(car, order_list=None):
         car.arm.set_arm_pose(arm="LEFT", hand=-80)
         time.sleep(0.5)
         car.arm.move_x_position(0.2)
-    
+
     if loc_flag == 1:
         car.lane_dis_offset(speed=0.3, dis_hold=1.7)
     else:

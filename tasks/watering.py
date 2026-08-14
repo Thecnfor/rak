@@ -1,13 +1,14 @@
 import time
 
+
 def run(car):
-    water_num = {"water_l1": 1,"water_l2": 2, "water_l3": 3}  # 标签对应水量
+    water_num = {"water_l1": 1, "water_l2": 2, "water_l3": 3}  # 标签对应水量
     tower_water = []
     water_loction = []
     tower_loction = {}
     car.arm.set_arm_pose(x=0.0, y=0.02, arm="RIGHT", hand="UP")
 
-    car.lane_dis_offset(speed=0.3, dis_hold= 2.0)
+    car.lane_dis_offset(speed=0.3, dis_hold=2.0)
     car.get_odometry(True)
     time.sleep(1)
     car.move_for([0, -0.05, 0])  # 向右微调位置

@@ -5,6 +5,7 @@ import time
 
 import yaml
 
+
 def _clamp(value, limits):
     lower, upper = limits
     if value is None:
@@ -123,16 +124,24 @@ class PID(object):
         if dt is None:
             dt = now - self._last_time if (now - self._last_time) else 1e-16
         elif dt <= 0:
-            raise ValueError('dt has negative value {}, must be positive'.format(dt))
+            raise ValueError("dt has negative value {}, must be positive".format(dt))
 
-        if self.sample_time is not None and dt < self.sample_time and self._last_output is not None:
+        if (
+            self.sample_time is not None
+            and dt < self.sample_time
+            and self._last_output is not None
+        ):
             # Only update every sample_time seconds
             return self._last_output
 
         # Compute error terms
         error = self.setpoint - input_
-        d_input = input_ - (self._last_input if (self._last_input is not None) else input_)
-        d_error = error - (self._last_error if (self._last_error is not None) else error)
+        d_input = input_ - (
+            self._last_input if (self._last_input is not None) else input_
+        )
+        d_error = error - (
+            self._last_error if (self._last_error is not None) else error
+        )
 
         # Check if must map the error
         if self.error_map is not None:
@@ -154,7 +163,9 @@ class PID(object):
 
         # Compute integral and derivative terms
         self._integral += self.Ki * error * dt
-        self._integral = _clamp(self._integral, self.output_limits)  # Avoid integral windup
+        self._integral = _clamp(
+            self._integral, self.output_limits
+        )  # Avoid integral windup
 
         if self.differential_on_measurement:
             self._derivative = -self.Kd * d_input / dt
@@ -175,14 +186,14 @@ class PID(object):
 
     def __repr__(self):
         return (
-            '{self.__class__.__name__}('
-            'Kp={self.Kp!r}, Ki={self.Ki!r}, Kd={self.Kd!r}, '
-            'setpoint={self.setpoint!r}, sample_time={self.sample_time!r}, '
-            'output_limits={self.output_limits!r}, auto_mode={self.auto_mode!r}, '
-            'proportional_on_measurement={self.proportional_on_measurement!r}, '
-            'differential_on_measurement={self.differential_on_measurement!r}, '
-            'error_map={self.error_map!r}'
-            ')'
+            "{self.__class__.__name__}("
+            "Kp={self.Kp!r}, Ki={self.Ki!r}, Kd={self.Kd!r}, "
+            "setpoint={self.setpoint!r}, sample_time={self.sample_time!r}, "
+            "output_limits={self.output_limits!r}, auto_mode={self.auto_mode!r}, "
+            "proportional_on_measurement={self.proportional_on_measurement!r}, "
+            "differential_on_measurement={self.differential_on_measurement!r}, "
+            "error_map={self.error_map!r}"
+            ")"
         ).format(self=self)
 
     @property
@@ -255,7 +266,7 @@ class PID(object):
         min_output, max_output = limits
 
         if (None not in limits) and (max_output < min_output):
-            raise ValueError('lower limit must be less than upper limit')
+            raise ValueError("lower limit must be less than upper limit")
 
         self._min_output = min_output
         self._max_output = max_output
@@ -279,27 +290,32 @@ class PID(object):
         self._last_output = None
         self._last_input = None
 
+
 def limit_val(val, min_val, max_val):
     if val is None:
         val = 0
     return max(min(val, max_val), min_val)
 
+
 # 读取yaml文件
 def get_yaml(path):
     try:
-        with open(path, 'r', encoding='utf-8') as f:
+        with open(path, "r", encoding="utf-8") as f:
             return yaml.load(f, Loader=yaml.FullLoader)
     except Exception as e:
-        print('{} not found'.format(path))
+        print("{} not found".format(path))
         print(e)
         return None
+
 
 # pid参数进行封装
 class PidWrap:
 
     def __init__(self, kp, ki, kd, setpoint=0, output_limits=1):
-        self.pid_t = PID(kp, ki, kd, setpoint, output_limits=(0-output_limits, output_limits))
-        
+        self.pid_t = PID(
+            kp, ki, kd, setpoint, output_limits=(0 - output_limits, output_limits)
+        )
+
     def set_target(self, target):
         self.pid_t.setpoint = target
 
@@ -324,12 +340,12 @@ class CountRecord:
             if val == self.last_record:
                 self.count += 1
             else:
-                self.count=0
+                self.count = 0
                 self.last_record = val
             return self.count
         except Exception as e:
             print(e)
-    
+
     def __call__(self, val):
         self.get_count(val)
         # print("count:{}, val:{}".format(self.count, val))
@@ -342,14 +358,15 @@ class CountRecord:
             return False
         time.sleep(0.02)
 
+
 class IndexWrap:
     def __init__(self, num, circle=False) -> None:
         self.index = 0
-        self.max = num-1
+        self.max = num - 1
         self.min = 0
         # 巡航设置
         self.circle = circle
-    
+
     def next(self):
         self.index += 1
         if self.index > self.max:
@@ -370,24 +387,26 @@ class IndexWrap:
 
     def get_index(self):
         return self.index
-    
+
     def __call__(self):
         return self.index
 
     def __str__(self) -> str:
-        return 'min:{}, max:{}, index:{}'.format(self.min, self.max, self.index)
-    
+        return "min:{}, max:{}, index:{}".format(self.min, self.max, self.index)
+
     def __repr__(self) -> str:
-        return 'min:{}, max:{}, index:{}'.format(self.min, self.max, self.index)
-    
+        return "min:{}, max:{}, index:{}".format(self.min, self.max, self.index)
+
+
 def count_test():
     import numpy as np
+
     count1 = CountRecord(30)
     count2 = CountRecord(20)
-    cdd = np.array([0.1,0.1, .1, .1, .1]).tolist()
+    cdd = np.array([0.1, 0.1, 0.1, 0.1, 0.1]).tolist()
     while True:
-        flag1 = count1(cdd[0]<0.2)
-        flag2 = count2(cdd[1]<0.2)
+        flag1 = count1(cdd[0] < 0.2)
+        flag2 = count2(cdd[1] < 0.2)
         if flag1 and flag2:
             break
         # print("cout1:",count1.count)
@@ -395,10 +414,12 @@ def count_test():
 
     print(count1.count, count2.count)
 
+
 def compare_test():
     a = {"test": "a"}
     b = {"test": "a"}
-    print(a==b)
+    print(a == b)
+
 
 if __name__ == "__main__":
     # pid_name = PidWrap

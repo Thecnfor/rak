@@ -1,5 +1,6 @@
 import time
 
+
 def find_goods(car, label, dy=-0.5):
     cls_id, det_label = car.move_to_detection_target(label=label, delta_y=dy)
     if det_label is not None:

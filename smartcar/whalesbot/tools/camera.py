@@ -12,6 +12,7 @@ import os, sys
 
 from .log_wrap import logger
 
+
 class Camera:
     def __init__(self, index=1, width=640, height=480):
         # if src ==0:
@@ -22,7 +23,7 @@ class Camera:
         self.width = width
         self.height = height
         self.index = index
-        
+
         # self.src =src
         self.cap = None
         self.frame = None
@@ -44,7 +45,7 @@ class Camera:
     def init(self):
         while True:
             try:
-                if 'Windows' in platform.platform():
+                if "Windows" in platform.platform():
                     self.src = self.index
                     self.cap = cv2.VideoCapture(self.src, cv2.CAP_DSHOW)
                 else:
@@ -69,7 +70,8 @@ class Camera:
                         ok = False
                     if not ok:
                         logger.error(
-                            "摄像头{}试读失败(设备可能掉线), 重试中...".format(self.src))
+                            "摄像头{}试读失败(设备可能掉线), 重试中...".format(self.src)
+                        )
                         self.cap.release()
                         time.sleep(1)
                         continue
@@ -82,7 +84,7 @@ class Camera:
                 except Exception:
                     pass
                 # self.video_detect()
-    
+
     def start_back_thread(self):
         # 如果未开启线程，开启线程
         if not self.flag_thread:
@@ -91,7 +93,7 @@ class Camera:
             self.cap_thread.start()
             self.flag_thread = True
         time.sleep(0.5)
-            
+
     def update(self):
         while True:
             if self.stop_flag:
@@ -148,7 +150,7 @@ def main():
             # cost_time = time.time() - start_time
             # start_time = time.time()
             # print("fps:", 1 / cost_time)
-            if key == ord('q'):
+            if key == ord("q"):
                 time.sleep(0.1)
                 break
         except Exception as e:

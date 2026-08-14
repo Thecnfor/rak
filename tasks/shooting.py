@@ -1,5 +1,6 @@
 import time
 
+
 def run(car, animal_list=None):  # noqa: E741
     if animal_list is None:
         animal_list = [0, 0, 0, 0]

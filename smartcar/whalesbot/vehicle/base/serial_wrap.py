@@ -22,23 +22,38 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".
 
 # 从拆分模块导入实现
 from .serial_protocol import (
-    MC_HEADER, MC_TAIL, pack_mc_frame, parse_mc_stream,
+    MC_HEADER,
+    MC_TAIL,
+    pack_mc_frame,
+    parse_mc_stream,
 )
 from .serial_engine import AsyncSerialEngine
 from .controller_info import (
-    CotrollerInfo, MC601, MC602, MC602Wireness,
+    CotrollerInfo,
+    MC601,
+    MC602,
+    MC602Wireness,
 )
 
 # 导入自定义log模块
 from ...tools import logger
+
 # logger.info("start time:{}".format(time.time()))
 
 
 class SerialWrap(serial.Serial):
     def __init__(self):
-        super(SerialWrap, self).__init__(port=None, baudrate=115200, bytesize=serial.EIGHTBITS, parity=serial.PARITY_NONE, \
-                                         stopbits=serial.STOPBITS_ONE, timeout=0.03, xonxoff=False, rtscts=False, \
-                                         dsrdtr=False)
+        super(SerialWrap, self).__init__(
+            port=None,
+            baudrate=115200,
+            bytesize=serial.EIGHTBITS,
+            parity=serial.PARITY_NONE,
+            stopbits=serial.STOPBITS_ONE,
+            timeout=0.03,
+            xonxoff=False,
+            rtscts=False,
+            dsrdtr=False,
+        )
         mc601 = MC601()
         mc602_usb = MC602()
         mc602_wireness = MC602Wireness()
@@ -51,7 +66,11 @@ class SerialWrap(serial.Serial):
         while True:
             self.dev: CotrollerInfo = self.ping_port()
             if self.dev is not None:
-                logger.info("port is {}, controller is {}, mode {}".format(self.port, self.dev.name, self.dev.connect_mode))
+                logger.info(
+                    "port is {}, controller is {}, mode {}".format(
+                        self.port, self.dev.name, self.dev.connect_mode
+                    )
+                )
                 break
             logger.critical("未接控制器或者控制器没有开机,或者程序运行错误!")
             while True:
@@ -84,7 +103,9 @@ class SerialWrap(serial.Serial):
         """异步发送命令, 不阻塞等待应答。callback(payload) 可选, 收到应答时回调。"""
         if getattr(self, "engine", None) is None:
             raise RuntimeError("异步引擎未启用, 请勿在初始化前使用 send_async")
-        return self.engine.submit(cmd, timeout=timeout, callback=callback, pending=False)
+        return self.engine.submit(
+            cmd, timeout=timeout, callback=callback, pending=False
+        )
 
     def send_raw(self, data: bytes):
         """直写原始字节(不带帧头尾), 供 MC601 直写路径/蜂鸣器等使用, 不等待应答。"""
@@ -145,7 +166,9 @@ class SerialWrap(serial.Serial):
         port_list = list_ports.comports()
         # for port in port_list:
         #     print('端口号：' + port[0] + '   端口名：' + port[1])
-        port_list = [port for port in port_list if "CH340" in port[1] or "USB" in port[1]]
+        port_list = [
+            port for port in port_list if "CH340" in port[1] or "USB" in port[1]
+        ]
         port_list.sort(key=lambda x: "CH340" not in x[1])
         return port_list
 
@@ -211,6 +234,6 @@ if __name__ == "__main__":
     while True:
         # serial_wra
         serial_wrap.reset_buffer()
-        ret = serial_wrap.get_anwser(bytes.fromhex('02 02 01 10'))
+        ret = serial_wrap.get_anwser(bytes.fromhex("02 02 01 10"))
         # print(ret)
         time.sleep(0.4)

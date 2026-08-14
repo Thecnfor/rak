@@ -24,7 +24,8 @@ import sys
 
 class _Offset:
     """偏移量对象，支持 += 操作"""
-    def __init__(self, driver, axis: str, unit: str = 'mm'):
+
+    def __init__(self, driver, axis: str, unit: str = "mm"):
         self._driver = driver
         self._axis = axis
         self._unit = unit
@@ -38,34 +39,41 @@ class _Offset:
         return self
 
     def _make_offset(self, delta):
-        return [delta, 0, 0] if self._axis == 'x' else ([0, delta, 0] if self._axis == 'y' else [0, 0, delta])
+        return (
+            [delta, 0, 0]
+            if self._axis == "x"
+            else ([0, delta, 0] if self._axis == "y" else [0, 0, delta])
+        )
 
 
 class _OffsetGroup:
     """偏移量组，管理 x/y/z 三个轴的偏移"""
+
     def __init__(self, driver):
         # 使用对象属性存储，避免被覆盖
-        self._x = _Offset(driver, 'x')
-        self._y = _Offset(driver, 'y')
-        self._z = _Offset(driver, 'z')
+        self._x = _Offset(driver, "x")
+        self._y = _Offset(driver, "y")
+        self._z = _Offset(driver, "z")
 
     def __getattr__(self, name):
-        if name == 'x':
+        if name == "x":
             return self._x
-        if name == 'y':
+        if name == "y":
             return self._y
-        if name == 'z':
+        if name == "z":
             return self._z
         raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
 
     def __setattr__(self, name, value):
-        if name in ('_x', '_y', '_z', '_driver'):
+        if name in ("_x", "_y", "_z", "_driver"):
             super().__setattr__(name, value)
         elif isinstance(value, _Offset):
             # 允许 +=/-= 操作返回的 _Offset 对象重新赋值
             super().__setattr__(name, value)
         else:
-            raise AttributeError(f"'{type(self).__name__}' does not allow direct assignment to '{name}' - use += or -= instead")
+            raise AttributeError(
+                f"'{type(self).__name__}' does not allow direct assignment to '{name}' - use += or -= instead"
+            )
 
 
 # 导入自定义log模块
@@ -126,7 +134,7 @@ class Odometry:
     def reset(self, x=None, y=None, z=None, distance=None):
         """
         重置位姿为指定位置, 默认保持原有值不变
-        
+
         参数:
             x: x轴位置，为 None 时保持原值
             y: y轴位置，为 None 时保持原值
@@ -136,7 +144,7 @@ class Odometry:
         # 取出当前的 x, y, z 值
         current_x, current_y, current_z = self.position
         current_distance = self.distance
-        
+
         # 逐个判断：传入非 None 则更新，否则用原值
         new_x = x if x is not None else current_x
         new_y = y if y is not None else current_y
@@ -144,8 +152,6 @@ class Odometry:
         # 赋值新位置
         self.distance = distance if distance is not None else current_distance
         self.position = np.array([new_x, new_y, new_z], dtype=np.float32)
-        
-            
 
     def world_to_car_velocity(self, vel_world, angle_car):
         """
@@ -396,7 +402,7 @@ class MecanumDriver:
             },
         }
 
-    def reset_position(self, x=0, y=0, z=0.0 ,distance = 0):
+    def reset_position(self, x=0, y=0, z=0.0, distance=0):
         """
         重置车辆位置为指定位置，默认为原点
         重置后，里程计数据将被清空
@@ -407,7 +413,7 @@ class MecanumDriver:
             distance: 前进的距离
         """
         with self._lock:
-            self.chassis.odometry.reset(x, y, z,distance)
+            self.chassis.odometry.reset(x, y, z, distance)
 
     def world_to_car_velocity(self, vel_world, angle_car):
         """
@@ -477,12 +483,13 @@ class MecanumDriver:
         while True:
             if self._stop_thread:
                 break
-            current_wheel_linear_velocities = np.array(
-                self.wheels_chassis.get_linear())
+            current_wheel_linear_velocities = np.array(self.wheels_chassis.get_linear())
             # 启动竞态保护: MC602 回传轮速前 get_rad() 可能返回空数组,
             # 形状不一致时只做基准复位, 不累计位移
-            if (current_wheel_linear_velocities.shape
-                    != previous_wheel_linear_velocities.shape):
+            if (
+                current_wheel_linear_velocities.shape
+                != previous_wheel_linear_velocities.shape
+            ):
                 previous_wheel_linear_velocities = current_wheel_linear_velocities
                 time.sleep(0.05)
                 continue
@@ -496,7 +503,7 @@ class MecanumDriver:
                 self.chassis.update_odometry(wheel_linear_displacements)
             time.sleep(0.05)
 
-    def get_odometry(self,show_info=False) -> np.ndarray:
+    def get_odometry(self, show_info=False) -> np.ndarray:
         """
         获取当前位姿
 
@@ -505,10 +512,12 @@ class MecanumDriver:
         """
         with self._lock:
             if show_info:
-                logger.info(f"当前位姿: [{self.chassis.odometry.position[0]:.4f}, {self.chassis.odometry.position[1]:.4f}, {self.chassis.odometry.position[2]:.4f}]")
+                logger.info(
+                    f"当前位姿: [{self.chassis.odometry.position[0]:.4f}, {self.chassis.odometry.position[1]:.4f}, {self.chassis.odometry.position[2]:.4f}]"
+                )
             return self.chassis.odometry.position.copy()
 
-    def get_distance(self,show_info=False) -> float:
+    def get_distance(self, show_info=False) -> float:
         """
         获取行驶距离
 
@@ -647,7 +656,9 @@ class MecanumDriver:
         target_position[2] = current_position[2] + position_offset[2]
         self.move_to_position(target_position, duration, max_velocities, tolerance)
 
-    def offset_by(self, position_offset, duration=None, max_velocities=None, tolerance=None):
+    def offset_by(
+        self, position_offset, duration=None, max_velocities=None, tolerance=None
+    ):
         """
         相对移动指定偏移量（单位：x/y为mm，z为度）
 
@@ -711,7 +722,6 @@ if __name__ == "__main__":
         # driver.set_velocity_for_duration(0, 0, math.pi / 2, 0.5)
         # time.sleep(1)
         # driver.get_odometry(show_info=True)
-
 
         driver.move_to_position([0.5, 0.2, 0])
         time.sleep(1)

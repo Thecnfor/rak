@@ -9,8 +9,8 @@ from typing import Union
 from smartcar import PID, logger
 from smartcar.whalesbot.tools import CountRecord, get_yaml
 
-class LocateMixin:
 
+class LocateMixin:
 
     def lane_det_location(
         self,
@@ -189,7 +189,6 @@ class LocateMixin:
                 dis_count(False)
             self.set_velocity(out_x, out_y, 0)
 
-
     def move_to_detection_target(
         self,
         delta_x=0.0,
@@ -280,7 +279,6 @@ class LocateMixin:
                 except:
                     return (None, None)
 
-
     def adjust_arm_position(self, dis=0.05):
         # print(f"arm side:{self.arm.side}")
         x_position = self.arm.x_get_position()
@@ -288,7 +286,6 @@ class LocateMixin:
             self.arm.move_x_position(x_position + dis)
         elif self.arm.side == "RIGHT":
             self.arm.move_x_position(x_position - dis)
-
 
     def det2pose(self, det, w_r=0.06):
         """

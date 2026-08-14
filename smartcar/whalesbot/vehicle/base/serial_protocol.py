@@ -14,13 +14,13 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
 # 帧头/帧尾
-MC_HEADER = bytes.fromhex('77 68')
-MC_TAIL = bytes.fromhex('0A')
+MC_HEADER = bytes.fromhex("77 68")
+MC_TAIL = bytes.fromhex("0A")
 
 
 def pack_mc_frame(cmd: bytes) -> bytes:
     """把内部命令字节打包为线路帧: 77 68 <len> <cmd> 0A (len = len(cmd)+4)。"""
-    cmd_len = (len(cmd) + 4).to_bytes(1, 'big')
+    cmd_len = (len(cmd) + 4).to_bytes(1, "big")
     return MC_HEADER + cmd_len + cmd + MC_TAIL
 
 
@@ -39,7 +39,7 @@ def parse_mc_stream(rx: bytes, start: int) -> tuple:
     total = rx[start + 2]
     if total < 4 or n - start < total:
         return None, start
-    frame = rx[start:start + total]
+    frame = rx[start : start + total]
     if frame[-1] != MC_TAIL[0]:
         # 尾不对: 丢弃该"帧头"继续扫描
         return None, start + 1

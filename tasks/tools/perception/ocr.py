@@ -9,8 +9,8 @@ import cv2
 
 from smartcar.whalesbot.tools import CountRecord
 
-class OcrErnieMixin:
 
+class OcrErnieMixin:
 
     def animal_image_analysis(self):
         dets = self.get_detection_results()
@@ -51,7 +51,6 @@ class OcrErnieMixin:
         result, analysis = self.image_analysis.get_image_res(base64_image)
         print(f"image result: {result}  \nanalysis:{analysis}")
         return result, analysis
-
 
     def get_det_ocr(self, det, label="name", time_out=5.0):
         time_stop = time.time() + time_out
@@ -125,7 +124,6 @@ class OcrErnieMixin:
                         else:
                             text_out = text
 
-
     def get_ocr(self, label=None, time_out=3.0):
         """
         进行OCR识别
@@ -181,7 +179,7 @@ class OcrErnieMixin:
                         # y2 = img.shape[0] if y2 > img.shape[0] else int(y2)
                         # # print(x1, x2, y1, y2)
                         # img_txt = img[y1:y2, x1:x2]
-                                            # 将归一化坐标转换为像素坐标
+                        # 将归一化坐标转换为像素坐标
                         x_c, y_c, w, h = det_bbox
                         w *= 1.1
                         h *= 1.1
@@ -211,7 +209,6 @@ class OcrErnieMixin:
                             else:
                                 text_out = text
 
-
     def yiyan_get_humattr(self, text):
         """
         获取人类属性分析
@@ -225,7 +222,6 @@ class OcrErnieMixin:
             dict: 人类属性分析结果
         """
         return self.hum_analysis.get_res_json(text)
-
 
     def yiyan_get_actions(self, text):
         """

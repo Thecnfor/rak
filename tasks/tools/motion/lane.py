@@ -5,8 +5,8 @@ import time
 # 方法默认参数用到的停止标志默认值(与 MyCar.STOP_PARAM 类属性保持一致)
 STOP_PARAM = True
 
-class LaneMixin:
 
+class LaneMixin:
 
     def lane_base(self, speed, end_fuction, stop=STOP_PARAM):
         """
@@ -39,7 +39,6 @@ class LaneMixin:
         if stop:
             self.stop()
 
-
     def lane_time(self, speed, time_dur, stop=STOP_PARAM):
         """
         车道保持定时方法
@@ -58,7 +57,6 @@ class LaneMixin:
 
         self.lane_base(speed, end_fuction, stop=stop)
 
-
     def lane_dis(self, speed, dis_end, stop=STOP_PARAM):
         """
         车道保持定距方法
@@ -76,7 +74,6 @@ class LaneMixin:
             return self.get_distance() > dis_end
 
         self.lane_base(speed, end_fuction, stop=stop)
-
 
     def lane_dis_offset(self, speed, dis_hold, stop=STOP_PARAM):
         """

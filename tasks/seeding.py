@@ -1,6 +1,7 @@
 import math
 import time
 
+
 def run(car):
 
     x_length = 0.45  # 基地前方转角的位置，用于计算播种位置

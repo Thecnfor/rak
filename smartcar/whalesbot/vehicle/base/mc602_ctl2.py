@@ -6,17 +6,20 @@ import os
 from queue import Queue
 from serial.tools import list_ports
 from threading import Lock, Thread
-from multiprocessing import Process 
+from multiprocessing import Process
 import time, math
 import struct
 import sys
+
 # 添加上本地目录
-sys.path.append(os.path.abspath(os.path.dirname(__file__))) 
+sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 # 添加上两层目录
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 from ...tools import logger
+
 # from pydownload import Scratch_Download_MC602P
 from smartcar.whalesbot.vehicle.base.serial_wrap import serial_wrap
+
 # 基础层(设备注册表/编解码/命令接口基类)已拆分到 mc602_devbase
 from .mc602_devbase import ctl602_dev_list, StructData, DevCmdInterface, DevListWrap
 
@@ -25,23 +28,25 @@ serial_mc602 = serial_wrap
 #     global serial_mc602
 #     serial_mc602 = ser
 
+
 class Buzzer_2(DevCmdInterface):
     def __init__(self) -> None:
         super().__init__(**ctl602_dev_list["beep"])
 
     def rings(self, freq=262, duration=0.2):
         # 音调hz 时间s
-        res = super().set(int(freq/2), int(duration*20))
+        res = super().set(int(freq / 2), int(duration * 20))
         return res
-    
+
+
 class Motor_2(DevCmdInterface):
     def __init__(self, port_id=None, reverse=1) -> None:
         super().__init__(**ctl602_dev_list["motor"], port_id=port_id)
         self.reverse = reverse
-    
+
     def set_dir(self, reverse):
         self.reverse = reverse
-        
+
     def set_speed(self, *args):
         args = list(args)
         if len(args) == 2:
@@ -60,21 +65,26 @@ class Motor_2(DevCmdInterface):
             args[0] = int(args[0] * self.reverse)
         data_bytes = self.get_bytes(*args, mode=2, port_id=self.port_id)
         self.ser.send_async(data_bytes, callback=callback, timeout=self.time_out)
-    
+
+
 class AnalogInput_2(DevCmdInterface):
     def __init__(self, port_id=None) -> None:
         super().__init__(**ctl602_dev_list["sensor_analog"], port_id=port_id)
+
 
 # 红外传感器
 class Infrared_2(DevCmdInterface):
     def __init__(self, port_id=None) -> None:
         super().__init__(**ctl602_dev_list["sensor_infrared"], port_id=port_id)
 
+
 class Sensor_Analog2_2(DevCmdInterface):
     def __init__(self, port_id=None):
         super().__init__(**ctl602_dev_list["sensor_analog_a"], port_id=port_id)
+
     def read(self):
         return self.no_act()
+
 
 class BluetoothPad_2(DevCmdInterface):
     def __init__(self) -> None:
@@ -85,7 +95,7 @@ class BluetoothPad_2(DevCmdInterface):
         self.stick_max = 160
         self.divisor_min = [42, 42, 42, 42]
         self.divisor_max = [56, 56, 56, 56]
-        
+
         self.margin = 6
 
     def calibrate(self):
@@ -110,9 +120,9 @@ class BluetoothPad_2(DevCmdInterface):
             if abs(tmp) < self.margin:
                 tmp = 0
             if tmp > 0:
-                tmp = (tmp-self.margin) / self.divisor_max[i]
-            elif tmp<0:
-                tmp = (tmp+self.margin) / self.divisor_min[i]
+                tmp = (tmp - self.margin) / self.divisor_max[i]
+            elif tmp < 0:
+                tmp = (tmp + self.margin) / self.divisor_min[i]
             tmp = min(1, max(-1, tmp))
             re_data.append(tmp)
         if data[4] == 49152:
@@ -124,19 +134,21 @@ class BluetoothPad_2(DevCmdInterface):
 class BoardKey_2(DevCmdInterface):
     def __init__(self) -> None:
         super().__init__(**ctl602_dev_list["board_key"])
-    
+
     def no_act(self):
         return super().no_act()[1:]
+
 
 class LedLight_2(DevCmdInterface):
     def __init__(self, port_id=None) -> None:
         super().__init__(**ctl602_dev_list["led_light"], port_id=port_id)
-    
+
     def set_light(self, led_id, r, g, b, port_id=None):
         return super().set(led_id, r, g, b, port_id=port_id)
-    
+
     def set(self, *args, port_id=None):
         return super().set(*args, port_id=port_id)
+
 
 class Key4Btn_2(AnalogInput_2):
     btn_sta = []
@@ -146,10 +158,10 @@ class Key4Btn_2(AnalogInput_2):
     bak_time = 0.0
     long_time = 0.7
     short_time = 0.4
-    
+
     def __init__(self, port_id=None) -> None:
         super().__init__(port_id=port_id)
-        self.key_map = {3:355,1:1366,2:2137, 4:2988}
+        self.key_map = {3: 355, 1: 1366, 2: 2137, 4: 2988}
         self.threshold = 0.1
 
         for i in range(5):
@@ -168,43 +180,43 @@ class Key4Btn_2(AnalogInput_2):
             except:
                 pass
         return r_key
-    
+
     def get_key(self, port_id=None):
         val = self.no_act(port_id=port_id)
         # print(val)
         return self.key_map_btn(val)
-    
+
     def get_btn(self, port_id=None):
         self.event()
         time.sleep(0.01)
         if len(self.state) > 0:
             key_v, key_state = self.state[0][0], self.state[0][1]
             del self.state[0]
-            return key_v + 1 + (key_state-1)*4
+            return key_v + 1 + (key_state - 1) * 4
         else:
             return 0
 
     def event(self):
         self.bak_time = time.time()
-            
+
         index = 0
         while len(self.state) > index:
             for i in range(len(self.state)):
                 if self.bak_time - self.state[index][2] > self.limit:
                     del self.state[index]
                     continue
-            index = + 1
+            index = +1
 
         button_num = self.get_key()
         if button_num != 0:
             index = button_num - 1
         else:
             index = 4
-            
+
         # 对应的按键按下，更新状态
         if self.btn_sta[index][0]:
             # 更新按键按下时间
-            self.btn_sta[index][1] += (self.bak_time - self.btn_sta[index][2])
+            self.btn_sta[index][1] += self.bak_time - self.btn_sta[index][2]
             # 发送连续按下
             if self.btn_sta[index][1] > self.long_time and index != 4:
                 self.state.append([index, 3, self.bak_time])
@@ -214,7 +226,11 @@ class Key4Btn_2(AnalogInput_2):
         self.btn_sta[index][2] = self.bak_time
         # print(self.btn_sta)
         for i in range(4):
-            btn_state, time_dur, time_last = self.btn_sta[i][0], self.btn_sta[i][1], self.btn_sta[i][2]
+            btn_state, time_dur, time_last = (
+                self.btn_sta[i][0],
+                self.btn_sta[i][1],
+                self.btn_sta[i][2],
+            )
             # 如果有记录按下
             if btn_state:
                 # 如果长时间没有更新
@@ -226,21 +242,24 @@ class Key4Btn_2(AnalogInput_2):
                     self.btn_sta[i][0] = False
                     self.btn_sta[i][1] = 0.0
 
+
 class NixieTube_2(DevCmdInterface):
     def __init__(self, port_id=None) -> None:
         super().__init__(**ctl602_dev_list["nixietube"], port_id=port_id)
-        
+
     def set_number(self, num, port_id=None):
         return super().set(num, port_id=port_id)
-    
+
+
 class Motor4_2(DevCmdInterface):
     def __init__(self) -> None:
         super().__init__(**ctl602_dev_list["motor4"])
-    
+
     def set_speed(self, speeds):
         return super().set(*speeds)
 
-class Motors_2():
+
+class Motors_2:
     def __init__(self, ports, reverse=False) -> None:
         self.moto_ports = ports
         self.motors = []
@@ -253,7 +272,7 @@ class Motors_2():
             self.args_none.append(0)
         self.motors_wrap = DevListWrap(self.motors)
         self.encoders_wrap = DevListWrap(self.encoders)
-        
+
     # 设置速度
     def set_speed(self, speeds):
         if not self.reverse:
@@ -266,7 +285,7 @@ class Motors_2():
         if self.reverse:
             speed = [-i for i in speed]
         return speed
-    
+
     def get_encoder(self):
         encoders = self.encoders_wrap.get_all(self.args_none, mode=1)
         if isinstance(encoders[0], list):
@@ -278,22 +297,25 @@ class Motors_2():
 
     def reset_encoder(self):
         return self.encoders_wrap.get_all(self.args_none, mode=3)
-    
+
     def reset(self):
         self.motors_wrap.get_all(self.args_none, mode=3)
         return self.encoders_wrap.get_all(self.args_none, mode=3)
-    
+
+
 class EncoderMotor_2(DevCmdInterface):
     def __init__(self, port_id=None, reverse=-1) -> None:
         self.reverse = reverse
         super().__init__(**ctl602_dev_list["encoder"], port_id=port_id)
-    
+
     def get_encoder(self):
-        return self.get()*self.reverse
+        return self.get() * self.reverse
+
 
 class EncoderMotors4_2(DevCmdInterface):
     def __init__(self) -> None:
         super().__init__(**ctl602_dev_list["encoder4"])
+
 
 class ServoPwm_2(DevCmdInterface):
     def __init__(self, port_id=None) -> None:
@@ -302,28 +324,31 @@ class ServoPwm_2(DevCmdInterface):
     def set_angle(self, angle, speed=100):
         self.set(int(speed), int(angle))
 
+
 class ServoBus_2(DevCmdInterface):
-    def __init__(self,port_id=None) -> None:
+    def __init__(self, port_id=None) -> None:
         super().__init__(**ctl602_dev_list["servo_bus"], port_id=port_id)
         self.set_time_out(1)
-    
+
     def set_angle(self, angle, speed=100):
         self.act_mode(1, speed, angle, mode=2)
 
     def set_speed(self, speed):
         self.act_mode(2, speed, mode=2)
 
+
 class ScreenShow_2(DevCmdInterface):
     def __init__(self) -> None:
         super().__init__(**ctl602_dev_list["led_show"])
-    
+
     def show(self, args):
         if type(args) != str:
             args = str(args)
         int_values = [ord(arg) for arg in args]
         int_values = tuple(int_values)
         self.set(*int_values)
-    
+
+
 class Battry_2(DevCmdInterface):
     def __init__(self) -> None:
         super().__init__(**ctl602_dev_list["power"])
@@ -332,14 +357,16 @@ class Battry_2(DevCmdInterface):
         res = super().get()
         bat = float(res) / 1000
         return bat
-    
+
+
 class PoutD_2(DevCmdInterface):
     def __init__(self, port_id=1) -> None:
         super().__init__(**ctl602_dev_list["dout"], port_id=port_id)
-    
+
     def set(self, *args):
         super().set(*args)
-        
+
+
 class Stepper_2(DevCmdInterface):
     def __init__(self, port_id=1) -> None:
         super().__init__(**ctl602_dev_list["stepper"], port_id=port_id)
@@ -355,11 +382,13 @@ class Stepper_2(DevCmdInterface):
     def get_step(self):
         return super().get()[1]
 
+
 def beep_test():
     beep = Buzzer_2()
     for i in range(10):
         beep.set(200, 10)
         time.sleep(0.5)
+
 
 def motor_test():
     motor = Motor_2(1)
@@ -369,17 +398,19 @@ def motor_test():
         motor.set(0)
         time.sleep(1)
 
+
 def motors_test():
     motors = Motors_2([1, 4], True)
     motors.reset_encoder()
     for i in range(10):
-        motors.set_speed([10,10])
+        motors.set_speed([10, 10])
         time.sleep(0.1)
         # print(motors.get_encoder())
         # motors.set_speed([0, 0, 0])
         # time.sleep(1)
-    motors.set_speed([0,0])
-    
+    motors.set_speed([0, 0])
+
+
 def motor4_test():
     motor4 = Motor4_2()
     while True:
@@ -389,6 +420,7 @@ def motor4_test():
         motor4.set_speed([0, 0, 0, 0])
         time.sleep(1)
 
+
 def encoders_test():
     encoders = EncoderMotors4_2()
     while True:
@@ -396,17 +428,20 @@ def encoders_test():
         print(res)
         time.sleep(1)
 
+
 def sensor_anolog_test():
     sensor4 = AnalogInput_2(1)
-    while(1):
+    while 1:
         print(sensor4.no_act())
         time.sleep(1)
 
+
 def sensor_infrared_test():
     infrared1 = Infrared_2(1)
-    while(1):
+    while 1:
         print(infrared1.no_act())
         time.sleep(1)
+
 
 def board_key_test():
     key = BoardKey_2()
@@ -415,37 +450,43 @@ def board_key_test():
         print(res)
         time.sleep(0.1)
 
+
 def show_test():
     show = ScreenShow_2()
     show.show("my_test\n\nok")
+
 
 def nixie_tube_test():
     nixie = NixieTube_2(1)
     nixie.set_number(1111)
 
+
 def servo_bus_test():
     servo_bus = ServoBus_2(2)
-    while(1):
+    while 1:
         servo_bus.set_angle(100, 60)
         time.sleep(1)
         servo_bus.set_angle(50, 60)
         time.sleep(1)
 
+
 def servo_pwm_test():
     servo_pwm = ServoPwm_2(2)
-    while(1):
+    while 1:
         servo_pwm.set_angle(60, 60)
         time.sleep(1)
         servo_pwm.set_angle(70, 60)
         time.sleep(1)
 
+
 def led_light_test():
     led_light = LedLight_2(1)
-    while(1):
+    while 1:
         led_light.set_light(1, 255, 255, 0)
         time.sleep(1)
         led_light.set_light(1, 0, 0, 0)
         time.sleep(1)
+
 
 def key_test():
     key = Key4Btn_2(7)
@@ -455,11 +496,11 @@ def key_test():
         res = key.get_btn()
         # res = key.get_key()
         # print(res)
-        if res!= 0:
+        if res != 0:
             print(res)
         now = time.time()
         try:
-            fps = (1 / (now - last_time))
+            fps = 1 / (now - last_time)
         except ZeroDivisionError:
             fps = 100
         last_time = now
@@ -467,7 +508,8 @@ def key_test():
         # print("fps:", fps)
         # print(res)
         # print(res)
-        
+
+
 def dev_list_test():
 
     motor1 = Motor_2(1)
@@ -483,6 +525,7 @@ def dev_list_test():
         logger.info(res)
         time.sleep(1)
 
+
 def bluetooth_pad_test():
     blue_pad = BluetoothPad_2()
     while True:
@@ -490,16 +533,19 @@ def bluetooth_pad_test():
         print(res)
         time.sleep(0.2)
 
+
 def dout_test():
     dout = PoutD_2(1)
     dout.set(0)
     # time.sleep
+
 
 def stepper_test():
     stepper = Stepper_2(2)
     stepper.set(2000)
     time.sleep(1)
     stepper.set(0)
+
 
 if __name__ == "__main__":
     serial_mc602.assert_dev("mc602")
@@ -524,4 +570,3 @@ if __name__ == "__main__":
     # servo_bus_test()
     # nixie_tube_test()
     # servo_pwm_test()
-

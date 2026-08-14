@@ -35,29 +35,29 @@ ctl602_dev_list = {
     "sensor_ambient_light": {"dev_id": 0x07, "mode": 4, "format": "bbH"},
     "sensor_analog_a": {"dev_id": 0x08, "mode": 0, "format": "bbH"},
     "bluetooth": {"dev_id": 0x09, "format": "BBBBi"},
-    "beep": {"dev_id": 0x0a, "format": "BBB"},
-    "led_show": {"dev_id": 0x0b, "format": "b"*101},
-    "power": {"dev_id": 0x0c, "format": "bi"},
-    "board_key": {"dev_id": 0x0d, "format": "bbb"},
-    "led_light": {"dev_id": 0x0e, "format": "bbBBBB"},
-    "nixietube": {"dev_id": 0x0f, "format": "bbi"},
+    "beep": {"dev_id": 0x0A, "format": "BBB"},
+    "led_show": {"dev_id": 0x0B, "format": "b" * 101},
+    "power": {"dev_id": 0x0C, "format": "bi"},
+    "board_key": {"dev_id": 0x0D, "format": "bbb"},
+    "led_light": {"dev_id": 0x0E, "format": "bbBBBB"},
+    "nixietube": {"dev_id": 0x0F, "format": "bbi"},
     "dout": {"dev_id": 0x10, "format": "bbb"},
-    "stepper": {"dev_id": 0x11, "format": "bbii"}
+    "stepper": {"dev_id": 0x11, "format": "bbii"},
 }
 
 
-class StructData():
+class StructData:
     def __init__(self, format=None) -> None:
         if format is None:
-            format = ''
-        self.format = '<b' + format
+            format = ""
+        self.format = "<b" + format
         self.size = struct.calcsize(self.format)
-        self.len = len(self.format)-1
+        self.len = len(self.format) - 1
 
     def set_format(self, format):
-        self.format = '<b' + format
+        self.format = "<b" + format
         self.size = struct.calcsize(self.format)
-        self.len = len(self.format)-1
+        self.len = len(self.format) - 1
 
     def __sizeof__(self) -> int:
         return self.size
@@ -83,7 +83,7 @@ class StructData():
 
 
 class DevCmdInterface:
-    def __init__(self, dev_id=None, mode=None, port_id=None, format='bb') -> None:
+    def __init__(self, dev_id=None, mode=None, port_id=None, format="bb") -> None:
         global serial_mc602
         self.ser = serial_mc602
         self.data_struct = StructData(format)
@@ -137,7 +137,7 @@ class DevCmdInterface:
         return self.data_struct.pack_data(data)
 
     def get_result(self, bytes_all, index=0):
-        data = self.data_struct.unpack_data(bytes_all, index)[self.arg_reg:]
+        data = self.data_struct.unpack_data(bytes_all, index)[self.arg_reg :]
         # 如果只有一个结果
         if len(data) == 1:
             data = data[0]
@@ -159,13 +159,21 @@ class DevCmdInterface:
         """订阅本设备的应答/上报帧事件(事件驱动)。收到帧即回调(解析后的结果)。"""
         dev_id = self.dev_id
         m = mode if mode is not None else (self.mode if self.mode is not None else 0)
-        p = port_id if port_id is not None else (self.port_id if self.port_id is not None else 0)
+        p = (
+            port_id
+            if port_id is not None
+            else (self.port_id if self.port_id is not None else 0)
+        )
         self.ser.subscribe(dev_id, m, p, callback)
 
     def unsubscribe(self, callback, mode=None, port_id=None):
         dev_id = self.dev_id
         m = mode if mode is not None else (self.mode if self.mode is not None else 0)
-        p = port_id if port_id is not None else (self.port_id if self.port_id is not None else 0)
+        p = (
+            port_id
+            if port_id is not None
+            else (self.port_id if self.port_id is not None else 0)
+        )
         self.ser.unsubscribe(dev_id, m, p, callback)
 
     def act_mode(self, *args, mode=None, port_id=None):
@@ -208,7 +216,7 @@ class DevListWrap:
             self.dev_list = dev_list
 
     def get_all(self, args, mode=1):
-        bytes_all = b''
+        bytes_all = b""
         for i in range(len(self.dev_list)):
             bytes_all += self.dev_list[i].get_bytes(args[i], mode=mode)
             # bytes_all += self.dev_list[i].act_default(args[i])

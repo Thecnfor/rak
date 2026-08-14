@@ -19,7 +19,7 @@
 
 """
 from smartcar import logger
-from smartcar import CollectControlCar,Camera
+from smartcar import CollectControlCar, Camera
 
 logger.info("log测试")
 if __name__ == "__main__":
@@ -28,7 +28,7 @@ if __name__ == "__main__":
     # cam2: index=2, 320x240（可根据需要调整）
     cam1 = Camera(1, 320, 240)
     cam2 = Camera(2, 640, 480)
-    
+
     # 启动遥控车系统
     dir1 = "dataset/image_set_lane"
     dir2 = "dataset/image_set_object"
