@@ -186,6 +186,23 @@ class Key4Btn_2(AnalogInput_2):
         # print(val)
         return self.key_map_btn(val)
 
+    def get_key_async(self, callback=None, port_id=None, timeout=None):
+        """异步读取按键(发命令不等应答), 回包时回调按键号。
+        与 get_key 语义一致, 仅发送方式不同; 超时/失败回调 None。
+        """
+        data_bytes = self.get_bytes(port_id=port_id or self.port_id)
+
+        def on_reply(res):
+            if res is None:
+                if callback is not None:
+                    callback(None)
+                return
+            val = self.get_result(res)
+            if callback is not None:
+                callback(self.key_map_btn(val))
+
+        self.send_async(data_bytes, callback=on_reply, timeout=timeout)
+
     def get_btn(self, port_id=None):
         self.event()
         time.sleep(0.01)
@@ -295,6 +312,27 @@ class Motors_2:
             encoders = [-i for i in encoders]
         return encoders
 
+    def get_encoder_async(self, callback=None, timeout=None):
+        """异步读取 4 路编码器(合并一帧, 不等应答立即返回)。
+        回包到达时回调 callback(encoders); 超时回调 None。
+        供里程计后台线程等需要高频读编码器、又不愿阻塞总线的场景。
+        """
+
+        def on_reply(res):
+            if res is None:
+                if callback is not None:
+                    callback(None)
+                return
+            encoders = res[0] if isinstance(res[0], list) else res
+            if not self.reverse:
+                encoders = [-i for i in encoders]
+            if callback is not None:
+                callback(encoders)
+
+        self.encoders_wrap.get_all_async(
+            self.args_none, mode=1, callback=on_reply, timeout=timeout
+        )
+
     def reset_encoder(self):
         return self.encoders_wrap.get_all(self.args_none, mode=3)
 
@@ -324,6 +362,15 @@ class ServoPwm_2(DevCmdInterface):
     def set_angle(self, angle, speed=100):
         self.set(int(speed), int(angle))
 
+    def set_angle_async(self, angle, speed=100, callback=None):
+        """异步设置 PWM 舵机角度(发命令不等应答), 供四轴并发使用。
+        与 set_angle 语义一致, 仅发送方式不同。
+        """
+        data_bytes = self.get_bytes(
+            int(speed), int(angle), mode=2, port_id=self.port_id
+        )
+        self.send_async(data_bytes, callback=callback)
+
 
 class ServoBus_2(DevCmdInterface):
     def __init__(self, port_id=None) -> None:
@@ -332,6 +379,13 @@ class ServoBus_2(DevCmdInterface):
 
     def set_angle(self, angle, speed=100):
         self.act_mode(1, speed, angle, mode=2)
+
+    def set_angle_async(self, angle, speed=100, callback=None):
+        """异步设置总线舵机角度(发命令不等应答), 供四轴并发使用。
+        与 set_angle 语义一致, 仅发送方式不同。
+        """
+        data_bytes = self.get_bytes(1, speed, angle, mode=2, port_id=self.port_id)
+        self.send_async(data_bytes, callback=callback)
 
     def set_speed(self, speed):
         self.act_mode(2, speed, mode=2)

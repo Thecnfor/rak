@@ -179,16 +179,22 @@ class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
         按键检测线程
 
         持续检测按键状态，当检测到按键3时设置停止标志。
+
+        采用异步读按键 + 0.2s 轮询节奏: 每次只发一帧异步读命令(不等应答),
+        不阻塞串口总线, 与其他设备(机械臂/底盘/舵机)共享总线时冲突最小。
         """
         while True:
             if not self._stop_flag:
                 if self._end_flag:
                     return
-                key_val = self.key.get_key()
+                self.key.get_key_async(callback=self._on_key)
                 # print(key_val)
-                if key_val == 3:
-                    self._stop_flag = True
                 time.sleep(0.2)
+
+    def _on_key(self, key_val):
+        """按键异步回调(在串口读线程中执行), 键值 3 表示急停。"""
+        if key_val == 3:
+            self._stop_flag = True
 
     def close(self):
         """

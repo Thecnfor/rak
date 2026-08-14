@@ -233,5 +233,30 @@ class DevListWrap:
             return [0, 0, 0, 0]
         return data_ret
 
+    def get_all_async(self, args, mode=1, callback=None, timeout=None):
+        """异步读取多设备: 合并一帧发送, 不等应答立即返回。
+        回包到达时按各设备 data_struct 切分并回调(callback(results))。
+        超时未回包由引擎清理, 回调(None) 以便调用方容错。
+        """
+        bytes_all = b""
+        for i in range(len(self.dev_list)):
+            bytes_all += self.dev_list[i].get_bytes(args[i], mode=mode)
+
+        def on_reply(res):
+            if res is None:
+                if callback is not None:
+                    callback(None)
+                return
+            data_ret = []
+            index = 0
+            for i in range(len(self.dev_list)):
+                data = self.dev_list[i].get_result(res, index)
+                index += self.dev_list[i].data_struct.size
+                data_ret.append(data)
+            if callback is not None:
+                callback(data_ret)
+
+        serial_mc602.send_async(bytes_all, callback=on_reply, timeout=timeout)
+
     def __getattr__(self, name):
         return getattr(self.dev_list, name)

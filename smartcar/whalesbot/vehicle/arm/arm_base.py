@@ -212,6 +212,25 @@ class ArmController(ArmMotion):
         self._arm_angle_last = _angle
         self.arm_servo.set_angle(_angle, speed)
 
+    def set_arm_angle_async(self, angle: Union[str, int] = "RIGHT", speed=80, callback=None):
+        """
+        异步设置机械臂角度(发命令不等应答), 供四轴并发使用。
+
+        与 set_arm_angle 语义一致(同样支持 LEFT/MID/RIGHT 或数字), 仅发送方式不同,
+        立即返回, 不等待舵机到达。
+        """
+        _angle = angle
+        if isinstance(_angle, str):
+            self.side = _angle
+            assert _angle in (
+                "LEFT",
+                "MID",
+                "RIGHT",
+            ), "Direction should be LEFT, MID, or RIGHT"
+            _angle = self.hand_angle_list[_angle]
+        self._arm_angle_last = _angle
+        self.arm_servo.set_angle_async(_angle, speed, callback=callback)
+
     def set_hand_angle(self, angle: Union[str, int] = "UP", speed=80):
         """
         设置机械臂手角度
@@ -230,9 +249,46 @@ class ArmController(ArmMotion):
         self._hand_angle_last = angle
         self.hand_servo.set_angle(angle, speed)
 
+    def set_hand_angle_async(self, angle: Union[str, int] = "UP", speed=80, callback=None):
+        """
+        异步设置机械臂手角度(发命令不等应答), 供四轴并发使用。
+
+        与 set_hand_angle 语义一致(同样支持 UP/MID/DOWN 或数字), 仅发送方式不同,
+        立即返回, 不等待舵机到达。
+        """
+        if isinstance(angle, str):
+            assert angle in (
+                "UP",
+                "MID",
+                "DOWN",
+            ), "Direction should be UP, MID, or DOWN"
+            angle = self.hand_angle_list2[angle]
+        self._hand_angle_last = angle
+        self.hand_servo.set_angle_async(angle, speed, callback=callback)
+
+    def set_arm_pose_async(self, x=None, y=None, arm=None, hand=None):
+        """
+        异步设置机械臂位姿(四轴并发)。
+
+        与 set_arm_pose 语义一致: X/Y 双轴走 goto_position_async, arm/hand 舵机
+        角度命令异步发出, 四个自由度并行开始。方法本身不阻塞主流程。
+
+        用法:
+            car.arm.set_arm_pose_async(x, y, arm="RIGHT", hand="DOWN")
+            while not car.arm.goto_position_async(x, y):   # 等待 XY 到位
+                car.delay(0.02)
+        """
+        if arm is not None:
+            self.set_arm_angle_async(arm)
+        if hand is not None:
+            self.set_hand_angle_async(hand)
+        # XY 双轴: 直接驱动一个 tick(与 goto_position_async 一致)
+        if x is not None or y is not None:
+            self.goto_position_async(x, y)
+
     def set_arm_pose(self, x=None, y=None, arm=None, hand=None):
         """
-        设置机械臂的位位姿
+        设置机械臂的位姿(同步, 阻塞)。
 
         Args:
             x: 水平位置

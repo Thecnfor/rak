@@ -93,7 +93,8 @@ class AsyncSerialEngine:
         frame = self.ser.dev.pack_frame(cmd)
         ev = Event() if pending else None
         with self._lock:
-            self._pending[seq] = [ev, None, None, callback]
+            # [ev, result, matched_frame, callback, submit_time, timeout]
+            self._pending[seq] = [ev, None, None, callback, time.time(), timeout]
         # 发送(带写锁, 单 fd 天然串行)
         with self.ser.lock:
             self.ser.write(frame)
@@ -142,6 +143,7 @@ class AsyncSerialEngine:
 
     # ---------- 读线程 ----------
     def _rx_loop(self):
+        last_purge = time.time()
         while not self._closed:
             if self._paused:
                 # 独占阶段: 简单轮询等待恢复
@@ -150,6 +152,11 @@ class AsyncSerialEngine:
             try:
                 r, _, _ = select.select([self.ser], [], [], 0.05)
                 if not r:
+                    # 周期性清理超时的异步项, 防止僵尸项卡住后续 FIFO
+                    now = time.time()
+                    if now - last_purge > 1.0:
+                        last_purge = now
+                        self._purge_expired(now)
                     continue
                 data = self.ser.read(self.ser.in_waiting or 1)
             except Exception as e:
@@ -160,6 +167,24 @@ class AsyncSerialEngine:
                 continue
             self._rx_buf.extend(data)
             self._dispatch()
+
+    def _purge_expired(self, now):
+        """清理超时未回包的异步项(同步项由 get_anwser 自行超时移除)。
+        仅处理 pending=False(异步) 的项: 超时后移除登记, 触发回调(None), 防僵尸卡 FIFO。
+        """
+        with self._lock:
+            expired = [
+                seq
+                for seq, item in self._pending.items()
+                if item[0] is None and item[4] is not None and now - item[4] > item[5]
+            ]
+            for seq in expired:
+                item = self._pending.pop(seq, None)
+                if item is not None and item[3] is not None:
+                    try:
+                        item[3](None)
+                    except Exception as e:
+                        logger.error("异步超时回调异常: {}".format(e))
 
     def _dispatch(self):
         """从 rx 缓冲切出所有完整帧并分发。"""

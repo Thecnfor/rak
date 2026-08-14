@@ -478,30 +478,49 @@ class MecanumDriver:
         里程计更新线程函数
 
         定期更新车辆位姿信息
+
+        采用异步读取编码器 + 回调更新的模式: 每次只发一帧异步读命令(不等应答),
+        回包到达时由串口读线程回调本方法, 更新里程计。主循环仅 sleep 等待,
+        不阻塞串口总线, 与其他设备(机械臂/按键/舵机)共享总线时冲突最小。
+        频率: 20ms 一轮(50Hz), 由固定 sleep 节流保证。
         """
-        previous_wheel_linear_velocities = np.array(self.wheels_chassis.get_linear())
+        # 首次请求: 以当前线速度作为基准
+        prev = None
+        got = threading.Event()
+        interval = getattr(self, "_odom_interval", 0.02)  # 50Hz; 可通过配置覆盖
+
+        def on_linear(vals):
+            nonlocal prev, got
+            if vals is None:
+                # 读失败/超时: 保持现状, 下一轮重试
+                got.set()
+                return
+            cur = np.array(vals)
+            if prev is None:
+                prev = cur
+            elif cur.shape == prev.shape:
+                # 轮子位移 = 当前线速度 - 上次线速度
+                disp = cur - prev
+                prev = cur
+                with self._lock:
+                    self.chassis.update_odometry(disp)
+            else:
+                # 形状不一致(MC602 回传竞态): 只做基准复位, 不累计
+                prev = cur
+            got.set()
+
         while True:
             if self._stop_thread:
                 break
-            current_wheel_linear_velocities = np.array(self.wheels_chassis.get_linear())
-            # 启动竞态保护: MC602 回传轮速前 get_rad() 可能返回空数组,
-            # 形状不一致时只做基准复位, 不累计位移
-            if (
-                current_wheel_linear_velocities.shape
-                != previous_wheel_linear_velocities.shape
-            ):
-                previous_wheel_linear_velocities = current_wheel_linear_velocities
-                time.sleep(0.05)
-                continue
-            # 获取每个轮子的位移
-            wheel_linear_displacements = (
-                current_wheel_linear_velocities - previous_wheel_linear_velocities
-            )
-            previous_wheel_linear_velocities = current_wheel_linear_velocities
-            # 里程计根据轮子的位置变化更新，使用锁确保线程安全
-            with self._lock:
-                self.chassis.update_odometry(wheel_linear_displacements)
-            time.sleep(0.05)
+            t_start = time.time()
+            got.clear()
+            # 异步读编码器, 回包时回调 on_linear
+            self.wheels_chassis.get_linear_async(callback=on_linear, timeout=interval)
+            # 等待本轮回包(最多 interval 秒), 回包到达后补足到 20ms 边界, 保证 ~50Hz
+            got.wait(timeout=interval)
+            remain = interval - (time.time() - t_start)
+            if remain > 0:
+                time.sleep(remain)
 
     def get_odometry(self, show_info=False) -> np.ndarray:
         """

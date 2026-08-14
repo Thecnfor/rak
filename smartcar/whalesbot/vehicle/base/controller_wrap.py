@@ -305,6 +305,16 @@ class Key4Btn:
         funcs = [self.key4btn_1.clicked, self.key4btn_2.get_btn]
         return funcs[ctl_id]()
 
+    def get_key_async(self, callback=None, timeout=None):
+        """异步读取当前按键号(发命令不等应答)。回包时回调按键号, 超时回调 None。
+        供按键轮询线程等不希望阻塞总线的场景; MC601 无异步能力, 回落到同步。
+        """
+        if ctl_id == 1:
+            self.key4btn_2.get_key_async(callback=callback, timeout=timeout)
+        else:
+            if callback is not None:
+                callback(self.key4btn_1.clicked())
+
 
 class Motor4:
     def __init__(self) -> None:
@@ -437,6 +447,15 @@ class Motors:
         # print(encoder_last)
         return encoder_last * self.encoder2rad
 
+    def get_encoder_async(self, callback=None, timeout=None):
+        """异步读取 4 路编码器(合并一帧, 不等应答立即返回)。回包时回调编码值列表。"""
+        if ctl_id == 1:
+            self.motors_2.get_encoder_async(callback=callback, timeout=timeout)
+        else:
+            # MC601: 无异步能力, 回落到同步
+            if callback is not None:
+                callback(self.get_encoder())
+
     def reset(self):
         funcs = [self.motors_1.reset, self.motors_2.reset_encoder]
         return funcs[ctl_id]()
@@ -465,6 +484,19 @@ class WheelWrap:
         d_linear = self.motors.get_rad() * self.raduis
         return d_linear
 
+    def get_linear_async(self, callback=None, timeout=None):
+        """异步读取轮子线速度(弧度编码器值 * 半径), 不等应答立即返回。回包时回调线速度列表。"""
+
+        def on_enc(encoders):
+            if encoders is None:
+                if callback is not None:
+                    callback(None)
+                return
+            if callback is not None:
+                callback(np.array(encoders) * self.motors.encoder2rad * self.raduis)
+
+        self.motors.get_encoder_async(callback=on_enc, timeout=timeout)
+
     def reset(self):
         return self.motors.reset()
 
@@ -480,6 +512,15 @@ class ServoPwm:
         angle = int(angle / self.mode * 180 + 90)
         return funcs[ctl_id](angle, speed)
 
+    def set_angle_async(self, angle, speed=100, callback=None):
+        """异步设置 PWM 舵机角度(发命令不等应答), 供四轴并发使用。
+        ctl_id=1(MC602) 走异步; ctl_id=0(MC601) 无异步能力, 回落到同步 set_angle。
+        """
+        angle = int(angle / self.mode * 180 + 90)
+        if ctl_id == 1:
+            return self.servo_2.set_angle_async(angle, speed, callback=callback)
+        return self.servo_1.set_angle(angle, speed)
+
 
 class ServoBus:
     def __init__(self, port_id=None) -> None:
@@ -490,6 +531,14 @@ class ServoBus:
     def set_angle(self, angle, speed=100):
         funcs = [self.servo_bus_1.set_angle, self.servo_bus_2.set_angle]
         return funcs[ctl_id](angle, speed)
+
+    def set_angle_async(self, angle, speed=100, callback=None):
+        """异步设置总线舵机角度(发命令不等应答), 供四轴并发使用。
+        ctl_id=1(MC602) 走异步; ctl_id=0(MC601) 无异步能力, 回落到同步 set_angle。
+        """
+        if ctl_id == 1:
+            return self.servo_bus_2.set_angle_async(angle, speed, callback=callback)
+        return self.servo_bus_1.set_angle(angle, speed)
 
     def set_speed(self, speed):
         funcs = [self.servo_bus_1.set_speed, self.servo_bus_2.set_speed]

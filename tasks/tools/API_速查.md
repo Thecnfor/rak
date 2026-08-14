@@ -160,7 +160,7 @@ car.close()   # 关按键线程 / 摄像头 / 流媒体（写独立脚本务必�
 | `car.arm.go_for(x_offset, y_offset, time_run=None, speed=[0.15, 0.04])` | 相对当前位置偏移双轴 |
 | `car.arm.set_arm_angle(angle, speed=80)` | 设置手臂角度（`"LEFT"/"MID"/"RIGHT"` 或数字） |
 | `car.arm.set_hand_angle(angle, speed=80)` | 设置手部角度（`"UP"/"MID"/"DOWN"` 或数字） |
-| `car.arm.set_arm_pose(x=None, y=None, arm=None, hand=None)` | 组合设置：先 goto_position(x,y)，再设 arm/hand |
+| `car.arm.set_arm_pose(x=None, y=None, arm=None, hand=None)` | 组合设置（同步）：先 goto_position(x,y) 阻塞，再设 arm/hand |
 | `car.arm.grasp(value: bool)` | `True` 吸起 / `False` 释放（气泵+气阀配合） |
 | `car.arm.switch_side(side)` | 切换机械臂方向（带 0.5s 等待） |
 | `car.arm.reset_position()` | 复位（Y/X 轴并发复位线程 + 手/臂舵机回正） |
@@ -174,6 +174,27 @@ car.close()   # 关按键线程 / 摄像头 / 流媒体（写独立脚本务必�
 | `car.arm.tick_x_moveto(target)` / `car.arm.tick_y_moveto(target)` | 单轴单步驱动，到位返回 `True` |
 | `car.arm.cancel_async_move()` | 取消进行中的异步移动，停止双轴 |
 | `car.arm.x_speed_async(velocity)` / `car.arm.y_speed_async(velocity)` | 异步设速（发命令不等应答） |
+
+### 3.4 四轴并发（X/Y 双轴 + 手臂/手部舵机并行）
+
+机械臂 4DoF 现已支持**四自由度并发**：X/Y 走异步 PID，手臂/手部舵机角度命令异步发出，四个自由度**并行开始、并行结束**，总耗时 ≈ max(各轴) 而非 sum。
+
+| 方法 | 说明 |
+|---|---|
+| `car.arm.set_arm_angle_async(angle, speed=80, callback=None)` | 异步设置手臂角度（`"LEFT"/"MID"/"RIGHT"` 或数字），立即返回 |
+| `car.arm.set_hand_angle_async(angle, speed=80, callback=None)` | 异步设置手部角度（`"UP"/"MID"/"DOWN"` 或数字），立即返回 |
+| `car.arm.set_arm_pose_async(x=None, y=None, arm=None, hand=None)` | 四轴并发组合：arm/hand 舵机异步发出 + XY 异步移动驱动一个 tick |
+
+```python
+# 四轴并发: 一条命令让 X/Y + 手臂 + 手部全部并行开始
+car.arm.set_arm_pose_async(x, y, arm="RIGHT", hand="DOWN")
+
+# 主循环里每 tick 驱动 XY, 直到双轴到位(舵机角度命令已先行异步发出)
+while not car.arm.goto_position_async(x, y):
+    car.delay(0.02)          # 期间可做别的事
+```
+
+> 同步版 `set_arm_angle` / `set_hand_angle` / `set_arm_pose` 保持不变，旧代码不受影响。
 
 ---
 
@@ -287,13 +308,47 @@ logger.debug/info/warning/error/critical(...)
 - 常驻 daemon 读线程 + `select` + 帧状态机，自动切帧并分发。
 - 发送 `submit(cmd)` 立即返回，登记 pending；应答到达时按 FIFO 唤醒同步等待者 / 触发回调。
 - **兼容层不变**：`serial_wrap.get_anwser(cmd, time_out)` 仍是"提交+等应答"的同步语义，所有旧代码零改动。
+- **异步项超时清理**：读线程每 1s 清理超时未回包的异步项（触发回调 `None`），防止 MC602 不应答时僵尸项卡住后续 FIFO。
 - 回退开关：`SMARTCAR_SERIAL_SYNC=1` 环境变量一键切回旧锁式一问一答。
 
-### 6.3 机械臂双轴"并发"的实际做法
+### 6.2b 异步高频读（里程计 / 按键，不阻塞总线）
 
-机械臂 X / Y 是两个独立电机，**可以同时发速度命令**（两个 PID 各自闭环）。
+后台高频读取（编码器/按键）已改为**异步发命令 + 回调更新**，主循环只 sleep，不占总线：
 
-**① 同步并发（推荐，简单）** —— `goto_position` 内部双轴 PID 交替发速度，同一循环里同时推进 X、Y：
+| 接口 | 说明 |
+|---|---|
+| `DevListWrap.get_all_async(args, mode, callback, timeout)` | 多设备合并一帧异步读，回包回调结果列表 |
+| `Motors_2.get_encoder_async(callback, timeout)` | 异步读 4 路编码器，回调编码值列表 |
+| `WheelWrap.get_linear_async(callback, timeout)` | 异步读轮子线速度（编码器弧度×半径） |
+| `Key4Btn_2.get_key_async(callback, port_id, timeout)` / `Key4Btn.get_key_async(...)` | 异步读当前按键号，回调按键号 |
+| `MecanumDriver.update_odometry_thread` | 里程计线程：异步读编码器→回调更新里程计，0.1s 节奏 |
+| `MyCar.key_thread_func` | 按键线程：异步读按键→回调置 `_stop_flag`，0.2s 节奏 |
+
+```python
+# 里程计/按键都是内部线程, 任务层无需感知; 需要时也可手动用异步读:
+car.wheels_chassis.get_linear_async(lambda v: print(v))
+car.key.get_key_async(lambda k: print("键:", k))
+```
+
+> 超时/失败时回调收到 `None`（而非卡死）。MC601 无异步能力时这些方法自动回落到同步。
+
+### 6.3 机械臂四轴"并发"的实际做法
+
+机械臂 4DoF：X / Y 是两个独立电机（各自 PID 闭环），手臂/手部是两个舵机（设目标角度后自己转动）。
+**四轴可以同时发命令**：速度命令（X/Y）+ 角度命令（舵机）异步发出，四轴并行开始/结束。
+
+**① 四轴并发（推荐）** —— `set_arm_pose_async` 把 X/Y 异步移动 + 两条舵机角度命令一次性发出：
+
+```python
+# 一条调用: X/Y 双轴异步移动 + 手臂/手部角度异步命令, 四轴并行开始
+car.arm.set_arm_pose_async(x=0.30, y=0.20, arm="RIGHT", hand="DOWN")
+
+# 主循环每 tick 驱动 XY, 直到双轴到位(舵机角度命令已先行发出)
+while not car.arm.goto_position_async(x=0.30, y=0.20):
+    car.delay(0.02)          # 期间可做别的事（读检测、走底盘等）
+```
+
+**② 同步并发（简单）** —— `goto_position` 内部双轴 PID 交替发速度，同一循环里同时推进 X、Y：
 
 ```python
 # 同时移动 X 到 0.30、Y 到 0.20，双轴并发（内部交替 setpoint，直到都到位）
@@ -307,19 +362,14 @@ car.arm.goto_position(y=0.20)          # x=None 表示 X 不动
 car.arm.go_for(x_offset=0.05, y_offset=-0.03)
 ```
 
-**② 异步非阻塞（配合事件循环，不独占总线）** —— 在任务主循环里每个 tick 调一次，
-期间还能穿插底盘/感知命令（因为速度命令是异步发的，不等应答）：
+**③ 舵机角度异步单独用**（例如只转手部，不与 XY 联动）：
 
 ```python
-# 不阻塞主循环的双轴移动：每 tick 双轴各发一条异步速度命令
-while not car.arm.goto_position_async(x=0.30, y=0.20):
-    car.delay(0.02)          # 期间可做别的事（读检测、走底盘等）
-
-# 取消
-car.arm.cancel_async_move()
+car.arm.set_arm_angle_async("RIGHT")       # 手臂异步转到 RIGHT
+car.arm.set_hand_angle_async("DOWN")       # 手部异步转到 DOWN(与手臂并行)
 ```
 
-**③ 单轴异步设速**（最细粒度，完全自定义轨迹）：
+**④ 单轴异步设速**（最细粒度，完全自定义轨迹）：
 
 ```python
 car.arm.x_speed_async(0.1)   # X 以 0.1 m/s 异步前进
