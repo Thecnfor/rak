@@ -172,8 +172,12 @@ class ArmController(ArmMotion):
         thread_reset_x.start()
         thread_reset_y.join()
         thread_reset_x.join()
-        self.x = 0
-        self.y = 0
+        # 回零兜底: 串口/传感器抖动时不回零也不应中断整个开机流程
+        try:
+            self.x = 0
+            self.y = 0
+        except Exception as e:
+            logger.warning(f"机械臂回零失败({e}), 跳过(位姿可能不准)")
         self.save_config()
 
     def switch_side(self, side):

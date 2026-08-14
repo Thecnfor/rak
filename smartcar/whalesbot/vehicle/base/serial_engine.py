@@ -30,7 +30,7 @@ class AsyncSerialEngine:
     def __init__(self, ser):
         self.ser = ser
         self._lock = Lock()
-        self._pending = {}  # seq -> [Event, result, matched_frame, callback]
+        self._pending = {}  # seq -> [Event, result, matched_frame, callback, ids, submit_time, timeout]
         self._callbacks = defaultdict(list)  # (dev_id, mode, port) -> [callback]
         self._seq = 0
         self._rx_buf = bytearray()
@@ -88,18 +88,37 @@ class AsyncSerialEngine:
         总是登记(单 fd 一问一答, 每个命令都期待回包, 需消费防止串包):
           - pending=True : get_anwser 等 Event
           - pending=False: 不阻塞, 回包到达时若有 callback 则回调, 随后移除登记
+        登记时记录 (dev_id, mode, port) 用于应答精确匹配, 防止并发串包。
         """
         seq = self._next_seq()
         frame = self.ser.dev.pack_frame(cmd)
         ev = Event() if pending else None
+        ids = tuple(cmd[:3]) if len(cmd) >= 3 else None
         with self._lock:
-            # [ev, result, matched_frame, callback, submit_time, timeout]
-            self._pending[seq] = [ev, None, None, callback, time.time(), timeout]
+            # [ev, result, matched_frame, callback, ids, submit_time, timeout]
+            self._pending[seq] = [ev, None, None, callback, ids, time.time(), timeout]
         # 发送(带写锁, 单 fd 天然串行)
         with self.ser.lock:
             self.ser.write(frame)
             self.ser.flush()
         return seq
+
+    def wait(self, seq, timeout=0.2):
+        """等待指定 seq 的应答并返回 payload; 超时/无登记返回 None。"""
+        with self._lock:
+            item = self._pending.get(seq)
+        if item is None or item[0] is None:
+            return None
+        if not item[0].wait(timeout):
+            with self._lock:
+                self._pending.pop(seq, None)
+            return None
+        with self._lock:
+            if seq in self._pending:
+                result = self._pending[seq][1]
+                del self._pending[seq]
+                return result
+        return None
 
     def send_raw(self, data: bytes):
         """直写原始字节(不带帧头尾, 供 MC601 直写路径/蜂鸣器等), 不等待应答。"""
@@ -110,24 +129,7 @@ class AsyncSerialEngine:
     def get_anwser(self, cmd: bytes, time_out=0.2) -> bytes:
         """同步兼容入口: 提交并等待应答。语义与旧 SerialWrap.get_anwser 一致。"""
         seq = self.submit(cmd, timeout=time_out)
-        item = None
-        with self._lock:
-            item = self._pending.get(seq)
-        if item is None:
-            return None
-        ev = item[0]
-        if not ev.wait(time_out):
-            # 超时: 移除登记, 返回 None
-            with self._lock:
-                if seq in self._pending:
-                    del self._pending[seq]
-            return None
-        with self._lock:
-            if seq in self._pending:
-                result = self._pending[seq][1]
-                del self._pending[seq]
-                return result
-        return None
+        return self.wait(seq, time_out)
 
     # ---------- 事件订阅 ----------
     def subscribe(self, dev_id, mode, port, callback):
@@ -176,7 +178,7 @@ class AsyncSerialEngine:
             expired = [
                 seq
                 for seq, item in self._pending.items()
-                if item[0] is None and item[4] is not None and now - item[4] > item[5]
+                if item[0] is None and item[5] is not None and now - item[5] > item[6]
             ]
             for seq in expired:
                 item = self._pending.pop(seq, None)
@@ -215,17 +217,21 @@ class AsyncSerialEngine:
             logger.warning("收到过短帧: {}".format(payload.hex(" ")))
             return
         dev_id, mode, port = payload[0], payload[1], payload[2]
-        # 1) 优先唤醒 pending(先到先得, 匹配最早等待者; 单 fd 一问一答天然 FIFO)
+        # 1) 优先唤醒 pending: 按 (dev_id, mode, port) 精确匹配,
+        #    同 (dev,mode,port) 多个登记时按登记先后(FIFO)取最早者。
+        #    不按 FIFO 全局匹配, 否则并发命令会串包。
         with self._lock:
             seq_matched = None
             for seq, item in self._pending.items():
-                seq_matched = seq
-                break
+                ids = item[4] if len(item) > 4 else None
+                if ids == (dev_id, mode, port):
+                    seq_matched = seq
+                    break
             if seq_matched is not None:
                 item = self._pending[seq_matched]
                 item[1] = payload
                 if item[0] is not None:
-                    # 同步项: 唤醒 get_anwser(由 get_anwser 移除登记)
+                    # 同步项: 唤醒 get_anwser/wait(由等待方移除登记)
                     item[0].set()
                 else:
                     # 异步项: 回包已消费, 触发回调后立即移除, 防止僵尸项卡住后续同步等待

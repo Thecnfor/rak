@@ -216,20 +216,33 @@ class DevListWrap:
             self.dev_list = dev_list
 
     def get_all(self, args, mode=1):
-        bytes_all = b""
+        # 并发模型: 每个设备单独 submit 一帧并登记, 然后按序 wait 各自应答。
+        # 旧实现把多帧拼成一包发、指望一次性读回整段, 在异步引擎下只能收到
+        # 第一帧(且会串包), 故改为逐设备登记/收发, 应答按 (dev,mode,port) 精确匹配。
+        seqs = []
         for i in range(len(self.dev_list)):
-            bytes_all += self.dev_list[i].get_bytes(args[i], mode=mode)
-            # bytes_all += self.dev_list[i].act_default(args[i])
-        # print(bytes_all.hex(' '))
-        res = serial_mc602.get_anwser(bytes_all)
+            b = self.dev_list[i].get_bytes(args[i], mode=mode)
+            try:
+                seq = serial_mc602.submit(b, timeout=self.dev_list[i].time_out)
+            except Exception:
+                seq = None
+            seqs.append((self.dev_list[i], seq, i))
+
         data_ret = []
-        if res is not None:
-            index = 0
-            for i in range(len(self.dev_list)):
-                data = self.dev_list[i].get_result(res, index)
-                index += self.dev_list[i].data_struct.size
-                data_ret.append(data)
-        else:
+        ok = False
+        for dev, seq, i in seqs:
+            res = None
+            if seq is not None:
+                res = serial_mc602.wait_answer(seq, dev.time_out)
+            else:
+                res = serial_mc602.get_anwser(dev.get_bytes(args[i], mode=mode),
+                                              dev.time_out)
+            if res is None:
+                data_ret.append(0)
+            else:
+                ok = True
+                data_ret.append(dev.get_result(res, 0))
+        if not ok:
             return [0, 0, 0, 0]
         return data_ret
 

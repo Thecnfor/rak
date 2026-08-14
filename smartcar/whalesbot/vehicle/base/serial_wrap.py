@@ -107,6 +107,19 @@ class SerialWrap(serial.Serial):
             cmd, timeout=timeout, callback=callback, pending=False
         )
 
+    def submit(self, cmd: bytes, timeout=0.2, callback=None, pending=True):
+        """登记并发命令, 返回 seq; 供 get_all 等需要多帧并发收的场景使用。"""
+        if getattr(self, "engine", None) is None:
+            raise RuntimeError("异步引擎未启用, 请勿在初始化前使用 submit")
+        return self.engine.submit(cmd, timeout=timeout, callback=callback,
+                                  pending=pending)
+
+    def wait_answer(self, seq, timeout=0.2):
+        """等待指定 seq 的应答(与 submit 配对)。"""
+        if getattr(self, "engine", None) is None:
+            return None
+        return self.engine.wait(seq, timeout)
+
     def send_raw(self, data: bytes):
         """直写原始字节(不带帧头尾), 供 MC601 直写路径/蜂鸣器等使用, 不等待应答。"""
         with self.lock:
