@@ -35,22 +35,22 @@ horiz_cfg:
 pos_cfg:
   pose_enable: true
   pose_horiz: 0.0
-  pose_vert: 0.20015250000000004
+  pose_vert: 0.0
   side: RIGHT
 vert_cfg:
   motor:
     id: 3
     reverse: 1
     perimeter: 0.008
-  limit_port: 6
+  limit_port: 5
   pid:
     Kp: 4
     Ki: 0.1
     Kd: 0.1
     setpoint: 0
     output_limits:
-    - -0.1
-    - 0.1
+    - -2
+    - 2
   threshold:
   - 0
   - 0.2

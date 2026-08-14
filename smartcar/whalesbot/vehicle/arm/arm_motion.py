@@ -63,8 +63,13 @@ class ArmMotion:
         Returns:
             bool: 是否到达限位
         """
+        try:
+            val = self.y_limit_sensor.read()
+        except (TypeError, ValueError):
+            # 串口应答超时/未应答时 read() 可能返回 None(或解析异常): 视为未到限位, 下轮重试
+            return False
         return (
-            self.y_limit_sensor.read() > 1000
+            val is not None and val > 1000
         )  # 磁敏传感器的值大于1000时, 则认为到达限位位置
 
     def y_stop_check(self):
@@ -112,15 +117,16 @@ class ArmMotion:
         直到撞上下限位传感器触发, 随后停止电机并把该位置设为 Y 轴 0 点。
         """
         # 固定下行速度(负值, 取 PID 输出限幅下限), 无脑下降直至限位
-        down_velocity = -0.1
-        # 只下发一次下行速度(异步, 发命令不等应答), 电机持续下行
-        self.y_speed_async(down_velocity)
+        down_velocity = 0.5
         while True:
+            # 与 reset_x 同理: MC602 速度命令点动式, 需循环内持续重发 y_speed
+            self.y_speed(down_velocity)
             # 一切以限位传感器为准: 触发即认为撞到下限位
             if self.y_reset_check():
                 self.y_pose_start = self.motor_y.get_dis()
                 self.y_pose_now = 0
                 break
+            time.sleep(0.02)  # 让出串口, 避免死循环独占总线
         self.y_speed(0)
 
     def move_y_position(self, target):
@@ -314,17 +320,19 @@ class ArmMotion:
         0.5s 不再变化(撞墙堵转/到头), 停止电机并把该位置设为 X 轴 0 点。
         """
         # 固定向左速度(负值, 保留原低速标定值), 无脑移动直至撞墙
-        move_velocity = 0.06
-        self.x_speed_async(move_velocity)
+        move_velocity = 0.1
         stop_time = None  # 最近一次"位置不动"的时刻
         pos_last = self.motor_x.get_dis()
         while True:
+            # 重要: MC602 速度命令是"点动"式, 发一次只转一小段(~89mm)就停。
+            # 必须循环内持续重发 x_speed, 电机才会持续移动, 直到真撞墙位置不动。
+            self.x_speed(move_velocity)
             pos_now = self.motor_x.get_dis()
             if abs(pos_now - pos_last) < STOP_CHECK_THRESHOLD:
-                # 位置不再变化, 记录时刻; 持续 0.5s 不动即判定撞墙到头
+                # 位置不再变化, 记录时刻; 持续 1s 不动即判定撞墙到头
                 if stop_time is None:
                     stop_time = time.time()
-                elif time.time() - stop_time >= 0.5:
+                elif time.time() - stop_time >= 1:
                     self.x_pose_start = pos_now
                     self.x_pose_now = 0
                     self.x_pose_last = 0
@@ -332,6 +340,7 @@ class ArmMotion:
             else:
                 stop_time = None
             pos_last = pos_now
+            time.sleep(0.02)  # 让出串口, 避免死循环独占总线
         self.x_speed(0)
 
     # ==================== 双轴运动编排 ====================

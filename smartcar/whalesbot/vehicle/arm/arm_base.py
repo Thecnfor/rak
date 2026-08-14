@@ -33,13 +33,11 @@ from .arm_motion import (
     ArmMotion,
     POSITION_ERROR_THRESHOLD,
     STOP_CHECK_THRESHOLD,
-    RESET_TIMEOUT,
 )
 
 # 常量定义(转发自 arm_motion, 保持外部引用兼容)
 POSITION_ERROR_THRESHOLD = POSITION_ERROR_THRESHOLD  # 位置误差阈值
 STOP_CHECK_THRESHOLD = STOP_CHECK_THRESHOLD  # 停止检查阈值
-RESET_TIMEOUT = RESET_TIMEOUT  # 复位超时(秒)
 
 
 def get_path_relative(*args):
@@ -161,17 +159,14 @@ class ArmController(ArmMotion):
         """
         重置机械臂位置
         """
-        thread_reset_y = Thread(target=self.reset_y)
-        thread_reset_x = Thread(target=self.reset_x)
-
+        # 注: X/Y 共享同一根串口总线, 并发复位会互相抢占导致命令丢失(电机不动)。
+        # 因此这里改为串行复位: 先 Y 复位完成, 再 X 复位完成。
         self.set_hand_angle("UP")
         self.set_arm_angle("RIGHT")
-        thread_reset_y.daemon = True
-        thread_reset_x.daemon = True
-        thread_reset_y.start()
-        thread_reset_x.start()
-        thread_reset_y.join()
-        thread_reset_x.join()
+        print("开始重置竖直方向位置")
+        self.reset_y()
+        print("开始重置水平方向位置")
+        self.reset_x()
         # 回零兜底: 串口/传感器抖动时不回零也不应中断整个开机流程
         try:
             self.x = 0
@@ -179,6 +174,7 @@ class ArmController(ArmMotion):
         except Exception as e:
             logger.warning(f"机械臂回零失败({e}), 跳过(位姿可能不准)")
         self.save_config()
+        print("重置位置完成")
 
     def switch_side(self, side):
         """
