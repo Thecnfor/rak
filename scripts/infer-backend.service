@@ -1,0 +1,19 @@
+[Unit]
+Description=SmartCar TRT inference backend (lane:5001, task:5002)
+After=network.target
+
+[Service]
+Type=simple
+# 以 xrak 身份运行, 与 run.py 保持一致; 后端已去串口化, 不占 /dev/ttyUSB0
+User=xrak
+WorkingDirectory=/home/xrak/rak
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 /home/xrak/rak/smartcar/paddlebaidu/infer_cs/base/infer_back_end.py
+# 崩溃(如瞬时 OOM)自动重启; 60s 内最多 5 次, 防止死循环重启
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Install]
+WantedBy=multi-user.target

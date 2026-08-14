@@ -323,9 +323,17 @@ class Motors_2:
                 if callback is not None:
                     callback(None)
                 return
-            encoders = res[0] if isinstance(res[0], list) else res
+            # 防御: 偶发应答帧形状异常(解析错位/串帧)会混入 list 元素,
+            # 只保留数值再取负, 避免 "bad operand type for unary -: 'list'"。
+            if isinstance(res, (list, tuple)) and res and isinstance(res[0], (list, tuple)):
+                encoders = res[0]
+            else:
+                encoders = res
+            if not isinstance(encoders, (list, tuple)):
+                encoders = [encoders]
+            encoders = [v for v in encoders if isinstance(v, (int, float))]
             if not self.reverse:
-                encoders = [-i for i in encoders]
+                encoders = [-v for v in encoders]
             if callback is not None:
                 callback(encoders)
 

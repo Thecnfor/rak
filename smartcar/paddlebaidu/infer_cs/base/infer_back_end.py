@@ -10,16 +10,34 @@ from threading import Thread
 import time
 import os
 import sys
-# 添加上两层目录
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
-# 添加项目根目录到Python路径
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..")))
 
-# 导入infer_front中的函数
-from smartcar.paddlebaidu.infer_cs.base.infer_front import get_yaml, get_path_relative
-# TRT 推理后端(运行时不再依赖 paddle)
-from smartcar.paddlebaidu.trt_backend import TrtYoloeInfer, TrtLaneInfer
-# from smartcar.whalesbot.tools.tools_class import get_yaml
+# 常驻推理后端(systemd 守护), 必须零硬件依赖:
+# 不走 smartcar 包导入, 否则触发 smartcar/__init__ 构造整个硬件栈,
+# 会再次打开 /dev/ttyUSB0 与主程序(run.py)抢串口、偷 MC602 应答帧。
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# 以顶层包方式导入 trt_backend(它只依赖 cv2/numpy/tensorrt, 无 smartcar 依赖)
+sys.path.insert(0, os.path.join(_BASE_DIR, "..", ".."))
+# 项目根目录(读 config_car.yml 用)
+_REPO_ROOT = os.path.abspath(os.path.join(_BASE_DIR, "..", "..", "..", ".."))
+sys.path.insert(0, _REPO_ROOT)
+
+from trt_backend import TrtYoloeInfer, TrtLaneInfer
+
+
+def get_path_relative(*args):
+    local_dir = os.path.abspath(os.path.dirname(__file__))
+    return os.path.join(local_dir, *args)
+
+
+def get_yaml(path):
+    config_path = os.path.join(_REPO_ROOT, "config_car.yml")
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            return yaml.load(f, Loader=yaml.FullLoader)
+    except Exception as e:
+        print('{} not found'.format(config_path))
+        print(e)
+        return None
 
 class InferServer:
     def __init__(self):

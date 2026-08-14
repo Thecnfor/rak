@@ -160,7 +160,13 @@ class AsyncSerialEngine:
                         last_purge = now
                         self._purge_expired(now)
                     continue
-                data = self.ser.read(self.ser.in_waiting or 1)
+                # VMIN=0 非阻塞 tty 下, select 可能假报可读而 read 返回 0,
+                # pyserial 会抛 "readiness to read but returned no data"。
+                # 只读队列里实际有的字节, 队列为空则跳过, 绕开该竞态。
+                n = self.ser.in_waiting
+                if not n:
+                    continue
+                data = self.ser.read(n)
             except Exception as e:
                 logger.error("串口读线程异常: {}".format(e))
                 time.sleep(0.01)

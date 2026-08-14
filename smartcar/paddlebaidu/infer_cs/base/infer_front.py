@@ -127,14 +127,17 @@ class ClintInterface:
         logger.info("{}连接服务器...".format(name))
         model_cfg = self.get_config(name)
         self.img_size = model_cfg['img_size']
+        self.port = model_cfg['port']
         self.client = self.get_zmp_client(model_cfg['port'])
+        self._probe_ctx = zmq.Context()
         
         infer_back_end_file = "infer_back_end.py"
         # 检查后台程序是否运行, 如果未开启, 则开启
         self.check_back_python(infer_back_end_file)
 
         flag = False
-        while True:
+        wait_t = 0
+        while wait_t < 180:
             if self.get_state():
                 if flag:
                     logger.info("")
@@ -143,7 +146,12 @@ class ClintInterface:
             print('.', end='', flush=True)
             # logger.info(".")
             time.sleep(1)
+            wait_t += 1
             flag = True
+        else:
+            raise RuntimeError(
+                "推理后端 180s 内未就绪: 请检查 `systemctl status infer-backend` 及 5001/5002 端口"
+            )
         # print(self.client)
         # print("连接服务器成功")
         logger.info("{}连接服务器成功".format(name))
@@ -191,11 +199,20 @@ class ClintInterface:
         return self.get_infer(*args, **kwds)
 
     def get_state(self):
-        data = bytes('ATATA', encoding='utf-8')
-        self.client.send(data)
-        response = self.client.recv()
-        response = json.loads(response)
-        return response
+        """探活后端: 独立 REQ socket + 3s 超时, 后端未就绪/挂掉时返回 None
+        而不是永久阻塞(后端为常驻 systemd 服务, 冷启动/重启时短暂不可达属正常)。"""
+        probe = self._probe_ctx.socket(zmq.REQ)
+        probe.setsockopt(zmq.LINGER, 0)
+        probe.setsockopt(zmq.RCVTIMEO, 3000)
+        probe.connect(f"tcp://127.0.0.1:{self.port}")
+        probe.send(b"ATATA")
+        try:
+            response = probe.recv()
+        except zmq.Again:
+            return None
+        finally:
+            probe.close()
+        return json.loads(response)
 
     def get_infer(self, img):
         if self.img_size is not None:
