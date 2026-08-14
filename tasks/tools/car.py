@@ -18,7 +18,6 @@ from smartcar.whalesbot.vehicle import (
 )
 from smartcar.whalesbot.vehicle.base.controller_wrap import PoutD
 
-from .helpers import sellect_program
 from .motion import MotionMixin
 from .perception import PerceptionMixin
 from .pids import PidCal2
@@ -146,10 +145,6 @@ class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
         参数:
             cfg: 配置字典，包含PID控制器的配置信息
         """
-        # lane_pid_cfg = cfg['lane_pid']
-        # self.pid_y = PID(lane_pid_cfg['y'], 0, 0)
-        # self.lane_pid = LanePidCal(**cfg['lane_pid'])
-        # self.det_pid = DetPidCal(**cfg['det_pid'])
         self.lane_pid = PidCal2(**cfg["lane_pid"])
         self.det_pid = PidCal2(**cfg["det_pid"])
 
@@ -167,28 +162,6 @@ class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
         self.cap_front = Camera(cfg["camera"]["front"])
         # 侧面摄像头
         self.cap_side = Camera(cfg["camera"]["side"])
-
-
-    @staticmethod
-    def get_cfg(path):
-        """
-        获取配置文件
-
-        读取并解析YAML配置文件，将端口号转换为整数类型。
-
-        参数:
-            path: 配置文件路径
-        """
-        from yaml import load, Loader
-
-        # 把配置文件读取到内存
-        with open(path, "r") as stream:
-            yaml_dict = load(stream, Loader=Loader)
-        port_list = yaml_dict["port_io"]
-        # 转化为int
-        for port in port_list:
-            port["port"] = int(port["port"])
-        # print(yaml_dict)
 
 
     def delay(self, time_hold):
@@ -225,121 +198,6 @@ class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
                 time.sleep(0.2)
 
 
-    @staticmethod
-    def get_list_by_val(list, index, val):
-        """
-        根据某个值获取列表中匹配的结果
-
-        参数:
-            list: 要搜索的列表
-            index: 要匹配的索引位置
-            val: 要匹配的值
-
-        返回:
-            匹配的元素，如果没有匹配的则返回None
-        """
-        for det in list:
-            if det[index] == val:
-                return det
-        return None
-
-
-    def debug(self, inference=False):
-        """
-        调试方法,显示摄像头图像和检测结果，用于调试和测试。
-
-        inference: 是否进行推理，默认为False
-        """
-        inference_flag = False
-        grasp_flag = False
-        while True:
-            if self._stop_flag:
-                return
-
-            keys_val = self.blue_pad.read()
-
-            # ==================== 1. 蓝牙手柄连接检测 ====================
-            if keys_val == [-1, -1, -1, -1, 0]:
-                self.car_state = [0.0, 0.0, 0.0]
-                logger.error("未检测到蓝牙手柄")
-                self.display.show("can't find bluetooth pad\n")
-                self.beep()
-                time.sleep(1)
-                continue
-
-            if inference_flag:  # 按键1: 显示车道检测结果
-                self.get_lane_results()
-                self.get_detection_results()
-            else:
-                self.streamer.update_frame(self.cap_front.read(), "cam1")
-                self.streamer.update_frame(self.cap_side.read(), "cam2")
-
-            # 执行车辆控制
-            self.set_velocity(keys_val[1], -keys_val[0], -keys_val[2])
-
-            # 射击 按下【4】
-            if keys_val[4] == (1 << 11):
-                self.shooting()
-
-            if keys_val[4] == (1 << 14):  # 按键[1]: 切换推理显示
-                inference_flag = not inference_flag
-                self.beep()
-                time.sleep(0.5)
-
-            # 执行机械臂控制
-            if keys_val[4] == (1 << 4):  # 按键△ : 向上移动机械臂
-                self.arm.motor_y.set_velocity(0.5)
-            elif keys_val[4] == (1 << 6):  # 按键▽: 向下移动机械臂
-                self.arm.motor_y.set_velocity(-0.5)
-            else:
-                self.arm.motor_y.set_velocity(0.0)
-
-            if keys_val[4] == (1 << 7):  # 按键◁ : 向左移动机械臂
-                self.arm.motor_x.set_angular(50)
-            elif keys_val[4] == (1 << 5):  # 按键▷: 向右移动机械臂
-                self.arm.motor_x.set_angular(-50)
-            else:
-                self.arm.motor_x.set_angular(0.0)
-
-            if keys_val[4] == (1 << 0):  # 按键^ : 控制手臂向上<>^v
-                self.arm.set_hand_angle("UP")
-            elif keys_val[4] == (1 << 2):  # 按键V: 控制手臂向下<>^v
-                self.arm.set_hand_angle("DOWN")
-
-            if keys_val[4] == (1 << 1):
-                self.arm.set_arm_angle("LEFT")
-            elif keys_val[4] == (1 << 3):
-                self.arm.set_arm_angle("RIGHT")
-            elif keys_val[4] == (1 << 10):
-                self.arm.set_arm_angle(-110)
-                self.arm.set_hand_angle(30)
-
-            if keys_val[4] == (1 << 9):
-                grasp_flag = not grasp_flag
-                self.arm.grasp(grasp_flag)
-                time.sleep(0.3)
-            if keys_val[4] == (1 << 8):
-                self.servo_1_flag = (self.servo_1_flag + 1) % 2
-                angle = self.servo_1_angle_list[self.servo_1_flag]
-                print(angle)
-                self.servo_1.set_angle(angle)
-                time.sleep(0.3)
-            time.sleep(0.05)
-
-
-    def walk_lane_test(self):
-        """
-        车道行走测试
-
-        测试车道保持功能，以固定速度行驶。
-        """
-
-        def end_function():
-            return True
-
-        self.lane_base(0.3, end_function, stop=self.STOP_PARAM)
-
-
     def close(self):
         """
         关闭方法
@@ -353,133 +211,6 @@ class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
         self.cap_side.close()
         self.streamer.stop()
         # self.grap_cam.close()
-
-
-    def manage(self, programs_list: list, order_index=0):
-        """
-        程序管理方法
-
-        管理和执行程序列表，通过按键选择要执行的程序。
-
-        参数:
-            programs_list: 程序列表，包含要执行的函数
-            order_index: 初始选中的程序索引，默认为0
-        """
-
-        def all_task():
-            time.sleep(4)
-            for func in programs_list:
-                func()
-
-        def lane_test():
-            self.lane_dis_offset(0.3, 30)
-
-        programs_suffix = [all_task, lane_test, self.debug]
-        programs = programs_list.copy()
-        programs.extend(programs_suffix)
-        # print(programs)
-        # 选中的python脚本序号
-        # 当前选中的序号
-        win_num = 5
-        win_order = 0
-        # 把programs的函数名转字符串
-        logger.info(order_index)
-        programs_str = [str(i.__name__) for i in programs]
-        logger.info(programs_str)
-        dis_str = sellect_program(programs_str, order_index, win_order)
-        self.display.show(dis_str)
-
-        self.stop()
-        run_flag = False
-        stop_flag = False
-        stop_count = 0
-        while True:
-            # self.button_all.event()
-            btn = self.key.get_key()
-            # 短按1=1,2=2,3=3,4=4
-            # 长按1=5,2=6,3=7,4=8
-            # logger.info(btn)
-            # button_num = car.button_all.clicked()
-
-            if btn != 0:
-                # logger.info(btn)
-                # 长按1按键，退出
-                if btn == 5:
-                    # run_flag = True
-                    self._stop_flag = True
-                    self._end_flag = True
-                    break
-                else:
-                    if btn == 4:
-                        # 序号减1
-                        self.beep()
-                        if order_index == 0:
-                            order_index = len(programs) - 1
-                            win_order = win_num - 1
-                        else:
-                            order_index -= 1
-                            if win_order > 0:
-                                win_order -= 1
-                        # res = sllect_program(programs, num)
-                        dis_str = sellect_program(programs_str, order_index, win_order)
-                        self.display.show(dis_str)
-
-                    elif btn == 2:
-                        self.beep()
-                        # 序号加1
-                        if order_index == len(programs) - 1:
-                            order_index = 0
-                            win_order = 0
-                        else:
-                            order_index += 1
-                            if len(programs) < win_num:
-                                win_num = len(programs)
-                            if win_order != win_num - 1:
-                                win_order += 1
-                        # res = sllect_program(programs, num)
-                        dis_str = sellect_program(programs_str, order_index, win_order)
-                        self.display.show(dis_str)
-
-                    elif btn == 3:
-                        # 确定执行
-                        # 调用别的程序
-                        dis_str = "\n{} running......\n".format(
-                            str(programs_str[order_index])
-                        )
-                        self.display.show(dis_str)
-                        self.beep()
-                        self._stop_flag = False
-                        programs[order_index]()
-                        self._stop_flag = True
-                        dis_str = sellect_program(programs_str, order_index, win_order)
-                        self.stop()
-                        self.beep()
-
-                        # 自动跳转下一条
-                        # if order_index == len(programs)-1:
-                        #     order_index = 0
-                        #     win_order = 0
-                        # else:
-                        #     order_index += 1
-                        #     if len(programs) < win_num:
-                        #         win_num = len(programs)
-                        #     if win_order != win_num-1:
-                        #         win_order += 1
-                        # res = sllect_program(programs, num)
-                        dis_str = sellect_program(programs_str, order_index, win_order)
-                        self.display.show(dis_str)
-                    logger.info(programs_str[order_index])
-            else:
-                self.delay(0.02)
-
-            time.sleep(0.02)
-
-        for i in range(2):
-            self.beep()
-            time.sleep(0.4)
-        time.sleep(0.1)
-        self.close()
-
 
 
 def create_car(reset=True):
