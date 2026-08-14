@@ -69,6 +69,57 @@ def run_arm_test(angle="RIGHT", speed=SPEED, no_hand=False):
     return resolved
 
 
+def hold_arm_test(angle="RIGHT", speed=SPEED, no_hand=False):
+    """
+    持续重发大臂角度命令并保持进程存活, 检测舵机是否上锁/执行。
+
+    WhalesBot 部分设备(如 X 轴)需持续发命令才执行/保持, 单条命令可能不够。
+    运行后请用手感受大臂是否变硬(上锁)或开始转动, Ctrl+C 退出。
+    """
+    target = angle.upper() if isinstance(angle, str) else str(angle)
+    resolved = ANGLE_MAP.get(target)
+    if resolved is None:
+        resolved = int(angle)
+
+    if not no_hand:
+        hand = ServoPwm(2, mode=180)
+        hand.set_angle(-90, speed)
+        time.sleep(1)
+
+    arm = ServoBus(2)
+    print(f"持续重发 arm -> {resolved}° (每0.5s, Ctrl+C 退出)...")
+    print("观察: 大臂是否上锁/转动?")
+    try:
+        while True:
+            arm.set_angle(resolved, speed)
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        print("stopped")
+
+
+def sweep_servo_test(speed=SPEED, no_hand=False):
+    """
+    扫描 0-8 号总线舵机地址, 找出真正带大臂的那个口。
+
+    逐口发 60°→0° 动作, 你观察大臂在哪个口会动; 其他口无舵机则无反应。
+    """
+    if not no_hand:
+        hand = ServoPwm(2, mode=180)
+        hand.set_angle(-90, speed)
+        time.sleep(1)
+
+    print("扫描总线舵机地址 0-8, 观察大臂在哪个口动作...")
+    for port in range(0, 9):
+        srv = ServoBus(port)
+        print(f"  口 {port}: 转 60°")
+        srv.set_angle(60, speed)
+        time.sleep(1.2)
+        print(f"  口 {port}: 回 0°")
+        srv.set_angle(0, speed)
+        time.sleep(1.2)
+    print("扫描结束")
+
+
 def main():
     parser = argparse.ArgumentParser(description="最小大臂舵机测试")
     parser.add_argument(
@@ -76,8 +127,22 @@ def main():
         help="LEFT/MID/RIGHT 或角度数字, 默认 RIGHT",
     )
     parser.add_argument("--no-hand", action="store_true", help="跳过抬手安全步骤")
+    parser.add_argument(
+        "--hold", action="store_true",
+        help="持续重发命令并保持进程存活(检测舵机是否上锁)",
+    )
+    parser.add_argument(
+        "--sweep", action="store_true",
+        help="扫描 0-8 号总线舵机地址, 找出带大臂的口",
+    )
     args = parser.parse_args()
-    run_arm_test(angle=args.angle, no_hand=args.no_hand)
+
+    if args.sweep:
+        sweep_servo_test(no_hand=args.no_hand)
+    elif args.hold:
+        hold_arm_test(angle=args.angle, no_hand=args.no_hand)
+    else:
+        run_arm_test(angle=args.angle, no_hand=args.no_hand)
 
 
 if __name__ == "__main__":
