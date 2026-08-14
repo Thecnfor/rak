@@ -26,8 +26,6 @@ from .. import MotorWrap, StepperWrap, AnalogInput
 POSITION_ERROR_THRESHOLD = 4e-4
 # 停止检测阈值 - 硬件标定值
 STOP_CHECK_THRESHOLD = 1e-10
-# 复位超时(秒): 机械臂归位卡死时兜底, 避免无限循环挂起整个流程
-RESET_TIMEOUT = 10.0
 
 
 class ArmMotion:
@@ -109,16 +107,16 @@ class ArmMotion:
 
     def reset_y(self):
         """
-        重置竖直方向位置
+        重置竖直方向位置: 一切以限位传感器(y_reset_check)为准。
+        不复用 PID 目标位判断, 只下发固定下行速度无脑下降,
+        直到撞上下限位传感器触发, 随后停止电机并把该位置设为 Y 轴 0 点。
         """
-        self.y_pid.setpoint = -0.25
-        start_time = time.time()
+        # 固定下行速度(负值, 取 PID 输出限幅下限), 无脑下降直至限位
+        down_velocity = -0.1
+        # 只下发一次下行速度(异步, 发命令不等应答), 电机持续下行
+        self.y_speed_async(down_velocity)
         while True:
-            if time.time() - start_time > RESET_TIMEOUT:
-                logger.warning("机械臂 Y 轴复位超时, 跳过(请检查电机/限位传感器)")
-                break
-            if self.y_pid_moveto(-0.25):
-                break
+            # 一切以限位传感器为准: 触发即认为撞到下限位
             if self.y_reset_check():
                 self.y_pose_start = self.motor_y.get_dis()
                 self.y_pose_now = 0
@@ -311,23 +309,29 @@ class ArmMotion:
 
     def reset_x(self):
         """
-        重置水平方向位置
+        重置水平方向位置: 唯一评判标准是是否撞墙不动。
+        只下发固定速度无脑移动(不发 PID 目标位), 直到检测到位置持续
+        0.5s 不再变化(撞墙堵转/到头), 停止电机并把该位置设为 X 轴 0 点。
         """
-        target = -0.33
-        self.x_pid.output_limits = (-0.06, 0.06)
-        self.x_pid.setpoint = target
-        start_time = time.time()
+        # 固定向左速度(负值, 保留原低速标定值), 无脑移动直至撞墙
+        move_velocity = 0.06
+        self.x_speed_async(move_velocity)
+        stop_time = None  # 最近一次"位置不动"的时刻
+        pos_last = self.motor_x.get_dis()
         while True:
-            if time.time() - start_time > RESET_TIMEOUT:
-                logger.warning("机械臂 X 轴复位超时, 跳过(请检查电机/接线)")
-                break
-            if self.x_pid_moveto(target):
-                break
-            if self.x_stop_check():
-                self.x_pose_start = self.motor_x.get_dis()
-                self.x_pose_now = 0
-                self.x_pose_last = 0
-                break
+            pos_now = self.motor_x.get_dis()
+            if abs(pos_now - pos_last) < STOP_CHECK_THRESHOLD:
+                # 位置不再变化, 记录时刻; 持续 0.5s 不动即判定撞墙到头
+                if stop_time is None:
+                    stop_time = time.time()
+                elif time.time() - stop_time >= 0.5:
+                    self.x_pose_start = pos_now
+                    self.x_pose_now = 0
+                    self.x_pose_last = 0
+                    break
+            else:
+                stop_time = None
+            pos_last = pos_now
         self.x_speed(0)
 
     # ==================== 双轴运动编排 ====================

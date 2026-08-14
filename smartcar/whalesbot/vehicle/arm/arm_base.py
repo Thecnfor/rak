@@ -194,7 +194,6 @@ class ArmController(ArmMotion):
             return
         angle_target = self.hand_angle_list[side]
         self.set_arm_angle(angle_target, 80)
-        time.sleep(0.5)
 
     def set_arm_angle(self, angle: Union[str, int] = "RIGHT", speed=80):
         """
@@ -305,7 +304,6 @@ class ArmController(ArmMotion):
         # time.sleep(0.2)
         if arm is not None:
             self.set_arm_angle(arm)
-            time.sleep(1)
         if hand is not None:
             self.set_hand_angle(hand)
 
