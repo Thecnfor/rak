@@ -156,3 +156,8 @@ nohup.out
 /tmp/
 *.engine
 *.onnx
+
+# 本地工具/IDE 目录
+.codegraph/
+.trae/
+
