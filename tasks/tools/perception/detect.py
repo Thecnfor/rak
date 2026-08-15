@@ -5,6 +5,7 @@ from typing import List
 
 import cv2
 
+from ..coords import norm_box_to_pixel, norm_center_to_pixel
 from smartcar import logger
 
 
@@ -73,8 +74,7 @@ class DetectMixin:
         camera_dx = CAMERA_HEIGHT / h
         # 计算目标在摄像头图像中的 x 坐标
         x_c, y_c = det[4], det[5]
-        x_pixel = (x_c + 0.5) * w  # [-0.5, 0.5] -> [0, w]
-        y_pixel = (y_c + 0.5) * h
+        x_pixel, y_pixel = norm_center_to_pixel(x_c, y_c, w, h)
         # 计算目标相对摄像头中心的像素偏移
         center_x = w / 2.0
         center_y = h / 2.0
@@ -102,11 +102,8 @@ class DetectMixin:
         for det in dets_ret:
             # 解析检测结果
             cls_id, det_id, label, score, x_c, y_c, bw, bh = det[:8]
-            # 计算检测框左上角坐标(x1, y1)和右下角坐标(x2, y2)
-            x1 = int((x_c - bw / 2) * w)
-            y1 = int((y_c - bh / 2) * h)
-            x2 = int((x_c + bw / 2) * w)
-            y2 = int((y_c + bh / 2) * h)
+            # 归一化坐标(中心 [-1,1], 半宽/半高) → 像素角点
+            x1, y1, x2, y2 = norm_box_to_pixel(x_c, y_c, bw, bh, w, h)
 
             # 根据类别 ID 选择不同颜色的检测框
             # 颜色列表，每个类别的颜色不同

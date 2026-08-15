@@ -6,6 +6,7 @@ import time
 import cv2
 from typing import Union
 
+from ..coords import norm_box_to_pixel
 from smartcar import PID, logger
 from smartcar.whalesbot.tools import CountRecord, get_yaml
  
@@ -106,14 +107,7 @@ class LocateMixin:
                 x_c, y_c, w, h = det_bbox
                 # 将归一化坐标转换为像素坐标
                 img_h, img_w = img_side.shape[:2]
-                x_c = int((x_c + 1) / 2 * img_w)
-                y_c = int((y_c + 1) / 2 * img_h)
-                w = int(w * img_w / 2)
-                h = int(h * img_h / 2)
-                x1 = int(x_c - w / 2)
-                y1 = int(y_c - h / 2)
-                x2 = int(x_c + w / 2)
-                y2 = int(y_c + h / 2)
+                x1, y1, x2, y2 = norm_box_to_pixel(x_c, y_c, w, h, img_w, img_h)
                 # 绘制矩形框
                 cv2.rectangle(img_side_show, (x1, y1), (x2, y2), (0, 255, 0), 2)
                 # 绘制标签

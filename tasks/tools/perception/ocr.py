@@ -7,6 +7,7 @@ import time
 
 import cv2
 
+from ..coords import norm_box_to_pixel
 from smartcar.whalesbot.tools import CountRecord
 
 
@@ -16,14 +17,8 @@ class OcrErnieMixin:
     def _bbox_to_pixel(det_bbox, img_shape, scale=1.2):
         """归一化 bbox → 像素坐标 (带 padding)。"""
         x_c, y_c, w, h = det_bbox
-        w *= scale
-        h *= scale
         img_h, img_w = img_shape[:2]
-        x_c = int((x_c + 1) / 2 * img_w)
-        y_c = int((y_c + 1) / 2 * img_h)
-        w = int(w * img_w / 2)
-        h = int(h * img_h / 2)
-        return int(x_c - w / 2), int(y_c - h / 2), int(x_c + w / 2), int(y_c + h / 2)
+        return norm_box_to_pixel(x_c, y_c, w, h, img_w, img_h, scale)
 
     def animal_image_analysis(self):
         dets = self.get_detection_results()
@@ -35,14 +30,7 @@ class OcrErnieMixin:
 
         # 将归一化坐标转换为像素坐标
         img_h, img_w = image.shape[:2]
-        x_c = int((x_c + 1) / 2 * img_w)
-        y_c = int((y_c + 1) / 2 * img_h)
-        w = int(w * img_w / 2)
-        h = int(h * img_h / 2)
-        x1 = int(x_c - w / 2)
-        y1 = int(y_c - h / 2)
-        x2 = int(x_c + w / 2)
-        y2 = int(y_c + h / 2)
+        x1, y1, x2, y2 = norm_box_to_pixel(x_c, y_c, w, h, img_w, img_h)
 
         # img_h, img_w = image.shape[:2]
 
