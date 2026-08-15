@@ -38,22 +38,13 @@ class DetectMixin:
         return det_task
 
     def get_lane_results(self):
-        """获取滤波后的巡线结果。
+        """获取源头合成后的新一对巡线结果。
 
-        前视 lane 推理由后台 _front_lane_loop 背靠背执行并写入实时缓存(含 EMA 滤波、
-        异常保持、超时归零); 本方法非阻塞直接读缓存, 不做推理、不做绘制、不推流。
+        返回 (steer, da): steer 为 correction 模型的 steer, da 为 lane 模型的
+        d_a。两个模型的结果由后台线程背靠背执行并写入实时缓存, 本方法在源头
+        合成后一次返回, 调用方无需关心模型拆分(异常保持、超时归零由源头处理)。
         """
-        return self._get_lane_cache()
-
-    def get_correction_steer(self):
-        """读取 correction CNN 的 steer(居中/回正)。
-
-        correction 推理由后台 _front_correction_loop 背靠背执行并写入实时缓存
-        (含 EMA 滤波、异常保持、超时归零); 本方法非阻塞直接读缓存。
-        返回 float ∈ [-1, +1]: >0 表示需要往一个方向转回中心(方向约定见
-        训练打标), <0 为反方向, ≈0 已居中。超时/失败返回 0(按直行处理)。
-        """
-        return self._get_correction_cache()
+        return self._get_lane_steer_cache()
 
     def get_target_location(self, det):
         """
@@ -120,9 +111,15 @@ class DetectMixin:
             # 根据类别 ID 选择不同颜色的检测框
             # 颜色列表，每个类别的颜色不同
             colors = [
-                (0, 0, 255), (0, 255, 0), (255, 0, 0),
-                (0, 255, 255), (255, 0, 255), (255, 255, 0),
-                (128, 0, 128), (0, 128, 128), (128, 128, 0),
+                (0, 0, 255),
+                (0, 255, 0),
+                (255, 0, 0),
+                (0, 255, 255),
+                (255, 0, 255),
+                (255, 255, 0),
+                (128, 0, 128),
+                (0, 128, 128),
+                (128, 128, 0),
             ]
             # 根据类别 ID 选择颜色，取模防止越界
             color = colors[int(cls_id) % len(colors)]

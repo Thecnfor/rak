@@ -242,7 +242,7 @@ class RealtimeMixin:
 
     def _front_correction_loop(self):
         # 背靠背 correction 推理: 拿最新前视帧跑 self.correction(),
-        # 结果做 EMA 平滑后写入 _corr_cache, 供 get_correction_steer() 读取。
+        # 结果做 EMA 平滑后写入 _corr_cache, 供 _get_lane_steer_cache() 读取。
         while not getattr(self, "_stop_flag", False):
             try:
                 cap = self.cap_front
@@ -270,7 +270,8 @@ class RealtimeMixin:
 
                 # 一阶低通滤波, 平滑单帧噪声
                 self._corr_last = self._corr_last + self._lane_ema * (
-                    steer - self._corr_last)
+                    steer - self._corr_last
+                )
                 self._corr_last_ts = ts
                 with self._corr_lock:
                     self._corr_cache = (ts, self._corr_last)
@@ -305,10 +306,25 @@ class RealtimeMixin:
             return 0.0, 0.0
         return error, angle
 
+    def _get_lane_steer_cache(self):
+        """源头统一: 新一对 = (correction 模型的 steer, lane 模型的 d_a)。
+
+        不再让调用方自己拼两个缓存; 两个模型的结果在源头合成新的一对,
+        调用方像直接调用一个模型那样, 一次 get 即得 (steer, da)。
+        steer 来自 _corr_cache, d_a 来自 _lane_cache 的 angle(第二个元素)。
+        任一方超时/失败则按 0 处理, 保证这对始终可用。
+        """
+        _, angle = self._get_lane_cache()
+        steer = self._get_correction_cache()
+        return steer, angle
+
     @staticmethod
-    def _draw_lane_overlay(image, error, angle):
-        """在画面上绘制 d_e / d_a 描边文字(八邻域黑描边 + 中心绿字), 返回新图。"""
-        label_text = f"d_e: {error:7.5f} d_a:{angle:7.5f}"
+    def _draw_lane_overlay(image, steer, da):
+        """在画面上绘制 steer / d_a 描边文字(八邻域黑描边 + 中心绿字), 返回新图。
+
+        显示源头合成后的新一对: steer(correction 模型) + d_a(lane 模型)。
+        """
+        label_text = f"steer: {steer:7.5f} d_a:{da:7.5f}"
         # 用统一厚度偏移描边(黑边+绿字), 避免 cv2 5.x 下
         # 不同 thickness 渲染字形宽度不一致导致的白绿两层错位
         org = (20, 40)
@@ -339,7 +355,7 @@ class RealtimeMixin:
 
     def _front_stream_loop(self):
         # 事件驱动前视推流: 摄像头每抓一帧即被 frame_ready 唤醒并立即发布到 cam1。
-        # 每一帧都叠加 d_e/d_a 描边(有推流不影响缓存中读最新的巡线缓存)
+        # 每一帧都叠加 steer/da 描边(有推流不影响缓存中读最新的巡线缓存)
         while not getattr(self, "_stop_flag", False):
             try:
                 cap = self.cap_front
@@ -355,8 +371,8 @@ class RealtimeMixin:
                     show = raw.copy() if raw is not None else None
                 if show is None:
                     continue
-                error, angle = self._get_lane_cache()
-                self._draw_lane_overlay(show, error, angle)
+                steer, da = self._get_lane_steer_cache()
+                self._draw_lane_overlay(show, steer, da)
                 self.streamer.update_frame(show, "cam1")
             except Exception as e:
                 logger.warning(f"前视流转发异常: {e}")

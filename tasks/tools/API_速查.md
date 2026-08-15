@@ -273,7 +273,7 @@ car.task_det # "task" 模型：侧视任务检测
 | 方法 | 说明 |
 |---|---|
 | `car.get_detection_results(sort_pos=(0,0), limit_x=1, limit_y=1)` | 侧视读帧→task 推理→按离 sort_pos 近远排序→返回检测列表；同时写入实时缓存 |
-| `car.get_lane_results()` | 巡线推理，返回滤波后的 `(error, angle)`；异常保持上一帧，超时按 0 直行 |
+| `car.get_lane_results()` | 源头合成后的新一对 `(steer, da)`：steer 为 correction 模型、da 为 lane 模型；异常保持上一帧，超时按 0 直行 |
 | `car.get_target_location(det)` | 由检测框计算目标相对小车的 `(loc_x, loc_y)` |
 | `car.draw_detection_results(img, dets_ret)` | 在图上画检测框并返回 |
 
@@ -547,7 +547,7 @@ car.move_to_position([0.6, 0.4, 0])
 | `car.move_to_position / move_for / offset_by / move_x / move_y / move_z / offset.x+=...` | 同左（`MecanumDriver`） | **直接继承** |
 | `car.world_to_car_velocity / car_to_world_velocity` | 同左（`MecanumDriver`） | **直接继承** |
 | `car.arm.*`（全部机械臂接口） | `smartcar.whalesbot.vehicle.arm.ArmController`（+ `arm_motion.ArmMotion`） | **直接继承**（`MyCar.arm = ArmController()`） |
-| `car.get_lane_results` / `car.lane_pid` | `smartcar.paddlebaidu.infer_cs.ClintInterface`（"lane" 模型）+ `PidCal2` | **tools 封装**，保留 |
+| `car.get_lane_results` / `car.lane_pid` | `smartcar.paddlebaidu.infer_cs.ClintInterface`（"lane"+"correction" 模型，源头合成新一对 `(steer, da)`）+ `PidCal2` | **tools 封装**，保留 |
 | `car.get_detection_results` / `car.task_det` | `ClintInterface`（"task" 模型） | **tools 封装**（含排序/画框/缓存），保留 |
 | `car.move_to_detection_target / lane_det_location / det2pose / adjust_arm_position` | 无底层等价 | **tools 独有**（视觉对齐），保留 |
 | `PidCal2`（tasks/tools/pids.py） | `from smartcar import PID`（两个 PID 组合） | **可用 smartcar 直接替代**：`PID` 已在 smartcar 导出 |

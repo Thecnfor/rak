@@ -9,18 +9,17 @@ STOP_PARAM = True
 class LaneMixin:
 
     # correction CNN 叠加到角速度的参数(实车标定)
-    _corr_threshold = 0.05   # |steer| 小于此值不启用(防抖)
-    _corr_weight = 0.5       # steer 1.0 对应的角速度贡献
+    _corr_threshold = 0.05  # |steer| 小于此值不启用(防抖)
+    _corr_weight = 0.5  # steer 1.0 对应的角速度贡献
 
     def lane_base(self, speed, end_fuction, stop=STOP_PARAM):
         """
         车道保持基础方法(双模型版)
 
-        使用前置摄像头进行车道检测和保持:
-            - 转弯: lane 模型的 error_angle(d_e) 进 cfg_pid_angle -> 角速度
+        使用前置摄像头进行车道检测和保持(源头合成新一对 steer/da):
+            - 转弯: lane 模型的 d_a 进 cfg_pid_angle -> 角速度
             - 居中: correction CNN 的 steer 叠加到角速度(打方向回正, 同时
               修正"不居中"与"不平行"); y_speed 横向通道不再使用
-            - lane 模型的 error_y(中线误差, 单模型版曾用它做横向平移)弃用
 
         标定:
             _corr_threshold: |steer| 低于此值不叠加, 防抖(默认 0.05)
@@ -38,17 +37,16 @@ class LaneMixin:
             if self._stop_flag:
                 return
 
-            # 只用转弯(d_e); error_y(d_a) 弃用, 横向通道置 0
-            _, error_angle = self.get_lane_results()
-            # 转弯通道: lane 模型 error_angle -> 角速度
-            angle_speed = self.lane_pid_angle(-error_angle)
+            # 源头合成后的新一对: steer 居中 + da 转弯
+            steer, da = self.get_lane_results()
+            # 转弯通道: lane 模型 d_a -> 角速度
+            angle_speed = self.lane_pid_angle(-da)
             # 居中通道: correction steer 叠加到角速度(打方向回正)
             # 注意: steer>0 按打标约定=右转回正; 实车发现方向反了, 用减号
-            correction_steer = self.get_correction_steer()
-            if abs(correction_steer) > corr_threshold:
-                angle_speed -= correction_steer * corr_weight
-            # correction steer 大小驱动纵向速度分级(误差大降速)
-            k_err = max(0.0, 1.0 - abs(correction_steer) / err_max)
+            if abs(steer) > corr_threshold:
+                angle_speed -= steer * corr_weight
+            # steer 大小驱动纵向速度分级(误差大降速)
+            k_err = max(0.0, 1.0 - abs(steer) / err_max)
             run_speed = v_min + (v_max - v_min) * k_err
             self.set_velocity(run_speed, 0.0, angle_speed)
             if end_fuction():
