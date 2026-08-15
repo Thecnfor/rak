@@ -10,6 +10,8 @@ from tasks.tools import create_car
 def main():
     car = create_car(reset=True)  # 初始化（含机械臂与里程计复位）
     try:
+        while True:
+            pass
         seeding.run(car)  # 播种任务
         # animal_list = target_detection.run(car)  # 识别虫害
         # watering.run(car)  # 灌溉任务

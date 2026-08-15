@@ -15,7 +15,6 @@ from .whalesbot.tools import (
     logger,
     CountRecord,
     get_yaml,
-    IndexWrap,
     PID,
     CollectControlCar,
 )
@@ -60,7 +59,6 @@ __all__ = [
     "logger",
     "CountRecord",
     "get_yaml",
-    "IndexWrap",
     "PID",
     "CollectControlCar",
     # 车辆控制

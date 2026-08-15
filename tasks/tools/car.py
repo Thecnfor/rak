@@ -5,12 +5,11 @@ import sys
 import threading
 import time
 
-from smartcar import Camera, Streamer, logger
+from smartcar import Camera, Streamer, PID, logger
 from smartcar.whalesbot.tools import get_yaml
 from smartcar.whalesbot.vehicle import (
     ArmController,
     Beep,
-    BluetoothPad,
     Key4Btn,
     MecanumDriver,
     ScreenShow,
@@ -20,10 +19,6 @@ from smartcar.whalesbot.vehicle.base.controller_wrap import PoutD
 
 from .motion import MotionMixin
 from .perception import PerceptionMixin
-from .pids import PidCal2
-
-# 添加上本地目录
-sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
 
 class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
@@ -67,8 +62,8 @@ class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
         self.camera_init(cfg)
         # paddle推理初始化
         self.paddle_infer_init()
-        # 侧视实时流(cam2)转发 + 持续检测线程(后端就绪后再启动, 避免空等)
-        self.start_side_stream()
+        # 侧视(cam2: 检测推理+推流) + 前视(cam1: 巡线推理+描边推流) 共 4 个后台线程
+        self.start_realtime_streams()
         # 文心一言分析初始化
         self.ernie_bot_init()
 
@@ -111,7 +106,6 @@ class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
         self.servo_1_flag = 0
         self.servo_1 = ServoPwm(1, 180)
         self.servo_1.set_angle(self.servo_1_angle_list[self.servo_1_flag])
-        self.blue_pad = BluetoothPad()
         self.shoot = PoutD(4)
 
     def set_storage(self, state=False):
@@ -140,8 +134,8 @@ class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
         参数:
             cfg: 配置字典，包含PID控制器的配置信息
         """
-        self.lane_pid = PidCal2(**cfg["lane_pid"])
-        self.det_pid = PidCal2(**cfg["det_pid"])
+        self.lane_pid_y = PID(**cfg["lane_pid"]["cfg_pid_y"])
+        self.lane_pid_angle = PID(**cfg["lane_pid"]["cfg_pid_angle"])
 
     def camera_init(self, cfg):
         """
@@ -210,10 +204,21 @@ class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
         # self.grap_cam.close()
 
 
-def create_car(reset=True):
-    """Create the competition car and perform the standard preparation."""
+def create_car(reset=True, comp_mode=False):
+    """
+    参数:
+        reset (bool): True 时执行蜂鸣提示 + 机械臂复位 + 里程计清零。
+        comp_mode (bool): 是否进入比赛模式。True 时按键交给任务编排器
+            (Orchestrator) 统一处理（4=一键启动/重来, 1=跳过, 3=急停），
+            因此关闭 MyCar 内置的按键线程，避免双线程同时读按键造成串口冲突；
+            任务编排与其他功能保持不变。
+    """
     car = MyCar()
     car.STOP_PARAM = False
+    if comp_mode:
+        # 比赛模式：禁用 MyCar 内置按键线程（按键统一由 Orchestrator 接管）
+        car._end_flag = True
+        car.thread_key.join()
     if reset:
         car.beep()
         car.arm.reset_position()

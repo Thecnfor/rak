@@ -10,16 +10,6 @@ from smartcar import logger
 
 class DetectMixin:
 
-    # 巡线滤波系数(一阶低通 EMA, 0~1, 越大越跟随, 越小越平滑)
-    _lane_ema = 0.35
-    # 巡线结果缓存: 用于推理异常时的上一帧保持
-    _lane_last = (0.0, 0.0)
-    # 单次推理异常允许的最大时长(秒), 超时则按无误差直行处理
-    _lane_timeout = 0.3
-    # correction CNN steer 缓存(推理异常时保持上一帧, 首次为 0)
-    _corr_last = 0.0
-    _corr_last_ts = 0.0
-
     def get_detection_results(
         self, sort_pos=(0, 0), limit_x=1, limit_y=1
     ) -> List[list]:
@@ -50,95 +40,20 @@ class DetectMixin:
     def get_lane_results(self):
         """获取滤波后的巡线结果。
 
-        前置摄像头推理得到 (error, angle):
-            error: 中线误差(道路正中间相对车头中线的横向偏差)
-            angle: 转弯误差(车头相对车道方向的夹角)
-        返回前对两路做一阶低通(EMA)滤波, 抑制单帧抖动;
-        推理失败/超时时保持上一帧(最多 _lane_timeout 秒, 之后按 0 处理直行)。
+        前视 lane 推理由后台 _front_lane_loop 背靠背执行并写入实时缓存(含 EMA 滤波、
+        异常保持、超时归零); 本方法非阻塞直接读缓存, 不做推理、不做绘制、不推流。
         """
-        ts = time.time()
-        try:
-            image = self.cap_front.read().copy()
-            if image is None:
-                raise ValueError("cap_front 无画面")
-            res = self.crusie(image)
-            if not isinstance(res, (list, tuple)) or len(res) < 2:
-                raise ValueError(f"推理结果异常: {res}")
-            error, angle = float(res[0]), float(res[1])
-        except Exception as e:
-            logger.warning(f"巡线推理失败({e}), 保持上一帧")
-            # 丢帧/异常: 超时内保持上一帧, 超时后按无误差直行
-            last_ts = getattr(self, "_lane_last_ts", 0.0)
-            if time.time() - last_ts > self._lane_timeout:
-                return 0.0, 0.0
-            return self._lane_last
-
-        # 一阶低通滤波, 平滑单帧噪声
-        l_e, l_a = self._lane_last
-        error = l_e + self._lane_ema * (error - l_e)
-        angle = l_a + self._lane_ema * (angle - l_a)
-        self._lane_last = (error, angle)
-        self._lane_last_ts = ts
-
-        # 绘制标签
-        label_text = f"d_e: {error:7.5f} d_a:{angle:7.5f}"
-        # 用统一厚度偏移描边(黑边+绿字), 避免 cv2 5.x 下
-        # 不同 thickness 渲染字形宽度不一致导致的白绿两层错位
-        org = (20, 40)
-        for dx in (-1, 0, 1):
-            for dy in (-1, 0, 1):
-                if dx == 0 and dy == 0:
-                    continue
-                cv2.putText(
-                    image,
-                    label_text,
-                    (org[0] + dx, org[1] + dy),
-                    cv2.FONT_HERSHEY_TRIPLEX,
-                    1.0,
-                    (0, 0, 0),
-                    1,
-                    cv2.LINE_AA,
-                )
-        cv2.putText(
-            image,
-            label_text,
-            org,
-            cv2.FONT_HERSHEY_TRIPLEX,
-            1.0,
-            (0, 255, 0),
-            1,
-            cv2.LINE_AA,
-        )
-        self.streamer.update_frame(image, "cam1")
-        # print(label_text)
-        return error, angle
+        return self._get_lane_cache()
 
     def get_correction_steer(self):
-        """读取 correction CNN 的 steer(居中/回正), EMA 滤波后返回。
+        """读取 correction CNN 的 steer(居中/回正)。
 
+        correction 推理由后台 _front_correction_loop 背靠背执行并写入实时缓存
+        (含 EMA 滤波、异常保持、超时归零); 本方法非阻塞直接读缓存。
         返回 float ∈ [-1, +1]: >0 表示需要往一个方向转回中心(方向约定见
-        训练打标), <0 为反方向, ≈0 已居中。推理失败/超时保持上一帧。
+        训练打标), <0 为反方向, ≈0 已居中。超时/失败返回 0(按直行处理)。
         """
-        ts = time.time()
-        try:
-            image = self.cap_front.read().copy()
-            if image is None:
-                raise ValueError("cap_front 无画面")
-            res = self.correction(image)
-            if not isinstance(res, (list, tuple)) or len(res) < 1:
-                raise ValueError(f"correction 推理结果异常: {res}")
-            steer = float(res[0])
-        except Exception as e:
-            logger.warning(f"correction 推理失败({e}), 保持上一帧")
-            last_ts = getattr(self, "_corr_last_ts", 0.0)
-            if time.time() - last_ts > self._lane_timeout:
-                return 0.0
-            return self._corr_last
-
-        # 一阶低通滤波, 平滑单帧噪声
-        self._corr_last = self._corr_last + self._lane_ema * (steer - self._corr_last)
-        self._corr_last_ts = ts
-        return self._corr_last
+        return self._get_correction_cache()
 
     def get_target_location(self, det):
         """
@@ -158,84 +73,74 @@ class DetectMixin:
         """
         # 摄像头图像在现实中实际的高和宽
         CAMERA_HEIGHT = 0.23
-        CAMERA_WIDTH = 0.33
-        # 机械臂x原点距离小车中心的距离
-        ARM_OFFSET = 0.15
+        CAMERA_WIDTH = 0.17
 
-        # 获取机械臂的方向和长度
-        arm_y = self.arm.x_pose_now + ARM_OFFSET
-        side = self.arm.side
-        length = 0
-
-        # 根据机械臂方向调整长度
-        if side == "RIGHT":
-            length = -self.arm.arm_length
-        elif side == "LEFT":
-            length = self.arm.arm_length
-
-        # 提取目标在图像中的坐标和尺寸
-        x_c, y_c, w, h = det[4:]
-
-        # 计算目标中心点在摄像头中的世界坐标
-        x = CAMERA_WIDTH * (x_c + w / 2)
-        y = CAMERA_HEIGHT * (y_c + h / 2)
-
-        # 计算目标中心点在小车中的世界坐标
-        loc_x = x
-        loc_y = y + arm_y + length
-
+        # 获取摄像头图像的高度和宽度
+        h, w = 480, 640
+        # 计算摄像头单位像素的实际长度 x,y
+        camera_dy = CAMERA_WIDTH / w
+        camera_dx = CAMERA_HEIGHT / h
+        # 计算目标在摄像头图像中的 x 坐标
+        x_c, y_c = det[4], det[5]
+        x_pixel = (x_c + 0.5) * w  # [-0.5, 0.5] -> [0, w]
+        y_pixel = (y_c + 0.5) * h
+        # 计算目标相对摄像头中心的像素偏移
+        center_x = w / 2.0
+        center_y = h / 2.0
+        pixel_offset_x = x_pixel - center_x
+        pixel_offset_y = y_pixel - center_y
+        # 换算为真实距离偏移 (小车坐标: x 横向, y 纵向, 图像 y=远处 → loc_y 正方向)
+        loc_x = -pixel_offset_x * camera_dy
+        loc_y = -pixel_offset_y * camera_dx
         return loc_x, loc_y
 
     def draw_detection_results(self, img, dets_ret):
         """
         将检测结果绘制在图像上
 
-        Args:
-            img: 原始图像
+        参数:
+            img: 要绘制检测结果的图像
             dets_ret: 检测结果列表，每个元素包含 [cls_id, det_id, label, score, x_c, y_c, w, h]
 
-        Returns:
+        返回:
             绘制了检测结果的图像
         """
-        # 创建图像副本，避免修改原始图像
-        img_show = img.copy()
+        # 获取图像高度和宽度
+        h, w = img.shape[:2]
+        # 遍历检测结果，绘制每个检测框和标签
+        for det in dets_ret:
+            # 解析检测结果
+            cls_id, det_id, label, score, x_c, y_c, bw, bh = det[:8]
+            # 计算检测框左上角坐标(x1, y1)和右下角坐标(x2, y2)
+            x1 = int((x_c - bw / 2) * w)
+            y1 = int((y_c - bh / 2) * h)
+            x2 = int((x_c + bw / 2) * w)
+            y2 = int((y_c + bh / 2) * h)
 
-        # 遍历每个检测结果
-        for index, det in enumerate(dets_ret):
-            # [cls_id:6 obj_id:0 label:water_l2 score:0.955 bbox:[309 334 399 431]]
-            det_cls_id, det_id, det_label, det_score, det_bbox = (
-                det[0],
-                det[1],
-                det[2],
-                det[3],
-                det[4:],
-            )
-            x_c, y_c, w, h = det_bbox
+            # 根据类别 ID 选择不同颜色的检测框
+            # 颜色列表，每个类别的颜色不同
+            colors = [
+                (0, 0, 255), (0, 255, 0), (255, 0, 0),
+                (0, 255, 255), (255, 0, 255), (255, 255, 0),
+                (128, 0, 128), (0, 128, 128), (128, 128, 0),
+            ]
+            # 根据类别 ID 选择颜色，取模防止越界
+            color = colors[int(cls_id) % len(colors)]
 
-            # 将归一化坐标转换为像素坐标
-            img_h, img_w = img.shape[:2]
-            x_c = int((x_c + 1) / 2 * img_w)
-            y_c = int((y_c + 1) / 2 * img_h)
-            w = int(w * img_w / 2)
-            h = int(h * img_h / 2)
-            x1 = int(x_c - w / 2)
-            y1 = int(y_c - h / 2)
-            x2 = int(x_c + w / 2)
-            y2 = int(y_c + h / 2)
-
-            # 绘制矩形框
-            cv2.rectangle(img_show, (x1, y1), (x2, y2), (0, 255, 0), 1)
-
-            # 绘制标签
-            label_text = f"{index}-{det_label}:{det_score:.2f}"
+            # 绘制检测框
+            cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
+            # 绘制标签和置信度
+            label_text = f"{label} {score:.2f}"
+            # 在检测框上方绘制标签和置信度
             cv2.putText(
-                img_show,
+                img,
                 label_text,
-                (x1, y1),
+                (x1, max(30, y1 - 10)),
                 cv2.FONT_HERSHEY_TRIPLEX,
                 0.5,
-                (0, 255, 0),
+                color,
                 1,
                 cv2.LINE_AA,
             )
-        return img_show
+        # 返回绘制了检测结果的图像
+        return img

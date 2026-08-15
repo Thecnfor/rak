@@ -23,8 +23,6 @@ class InferInitMixin:
         # ocr识别(已停用:仅保留 lane + task 两个模型,无需 OCR)
         # self.ocr_rec = ClintInterface("ocr")
         self.ocr_rec = None
-        # 识别为None
-        self.last_det = None
 
     def ernie_bot_init(self):
         """

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""侧视实时流与持续检测(RealtimeMixin): 来一帧推一帧, 背靠背推理(从 perception.py 拆分而来)。"""
+"""实时流与持续检测(RealtimeMixin): 来一帧推一帧, 背靠背推理(从 perception.py 拆分而来)。"""
 import json
 import threading
 import time
@@ -12,15 +12,26 @@ from smartcar.whalesbot.tools import logger
 
 class RealtimeMixin:
 
-    # 侧视实时流: 始终推画面, 检测线程每 0.5s 跑一次检测, 有目标就叠框
+    # 侧视/前视 后台线程防重复启动标志
     _side_stream_flag = False
+    _front_stream_flag = False
 
-    def start_side_stream(self):
-        """启动侧视(cam2)实时检测 + 实时推流两个线程, 由 MyCar 初始化时调用。"""
+    # 巡线滤波系数(一阶低通 EMA, 0~1, 越大越跟随, 越小越平滑)
+    _lane_ema = 0.35
+    # 单次推理异常允许的最大时长(秒), 超时则按无误差直行处理
+    _lane_timeout = 0.3
+
+    def start_realtime_streams(self):
+        """启动侧视(推理+推流)与前视(巡线推理+推流)共 4 个后台线程, 由 MyCar 初始化时调用。"""
+        self._init_realtime_caches()
+        self._start_side_streams()
+        self._start_front_streams()
+
+    def _start_side_streams(self):
+        """启动侧视(cam2): 实时检测 + 实时推流两个线程。"""
         if RealtimeMixin._side_stream_flag:
             return
         RealtimeMixin._side_stream_flag = True
-        self._init_realtime_cache()
         threading.Thread(
             target=self._side_detect_loop, name="side_detect", daemon=True
         ).start()
@@ -28,19 +39,42 @@ class RealtimeMixin:
             target=self._side_stream_loop, name="side_stream", daemon=True
         ).start()
 
-    def _init_realtime_cache(self):
-        """初始化实时检测结果缓存(检测线程来一帧推一帧)。"""
+    def _start_front_streams(self):
+        """启动前视(cam1): 实时巡线推理 + correction 推理 + 实时推流三个线程。"""
+        if RealtimeMixin._front_stream_flag:
+            return
+        RealtimeMixin._front_stream_flag = True
+        threading.Thread(
+            target=self._front_lane_loop, name="front_lane", daemon=True
+        ).start()
+        threading.Thread(
+            target=self._front_correction_loop, name="front_correction", daemon=True
+        ).start()
+        threading.Thread(
+            target=self._front_stream_loop, name="front_stream", daemon=True
+        ).start()
+
+    def _init_realtime_caches(self):
+        """初始化实时缓存(侧视检测 + 前视巡线 + 前视 correction)。"""
         self._det_lock = threading.Lock()
         self._det_cache = None  # (timestamp, dets)
+        self._lane_lock = threading.Lock()
+        self._lane_cache = None  # (timestamp, error, angle)
+        self._lane_last = (0.0, 0.0)
+        self._lane_last_ts = 0.0
+        self._corr_lock = threading.Lock()
+        self._corr_cache = None  # (timestamp, steer)
+        self._corr_last = 0.0
+        self._corr_last_ts = 0.0
 
+    # ------------------------------------------------------------------
+    # 侧视 task 检测接口
+    # ------------------------------------------------------------------
     def get_realtime_detections(self, fresh=False, max_age=None):
         """实时获取侧视 task 检测结果。
 
         检测线程对最新帧背靠背推理并更新缓存; 本方法非阻塞返回最新结果。
         fresh=True 时立刻同步跑一次推理(独立连接, 不阻塞检测线程)。
-
-        返回:
-            list: [cls_id, obj_id, label, score, x_c, y_c, w, h](归一化)
         """
         if fresh:
             try:
@@ -83,7 +117,7 @@ class RealtimeMixin:
     def _get_det_cache(self):
         lock = getattr(self, "_det_lock", None)
         if lock is None:
-            self._init_realtime_cache()
+            self._init_realtime_caches()
             lock = self._det_lock
         with lock:
             return self._det_cache
@@ -163,3 +197,167 @@ class RealtimeMixin:
             except Exception as e:
                 logger.warning(f"侧视流转发异常: {e}")
         RealtimeMixin._side_stream_flag = False
+
+    # ------------------------------------------------------------------
+    # 前视 lane 巡线接口
+    # ------------------------------------------------------------------
+    def _front_lane_loop(self):
+        # 背靠背巡线推理: 拿最新前视帧跑 self.crusie(),
+        # 结果做 EMA 平滑后写入 _lane_cache, 供推流线程绘制 + get_lane_results() 读取。
+        while not getattr(self, "_stop_flag", False):
+            try:
+                cap = self.cap_front
+                raw = getattr(cap, "frame", None)
+                if raw is None:
+                    time.sleep(0.01)
+                    continue
+                ts = time.time()
+                try:
+                    res = self.crusie(raw)
+                    if not isinstance(res, (list, tuple)) or len(res) < 2:
+                        raise ValueError(f"lane 推理结果异常: {res}")
+                    error, angle = float(res[0]), float(res[1])
+                except Exception as e:
+                    logger.warning(f"前视巡线推理失败({e}), 保持上一帧")
+                    last_ts = getattr(self, "_lane_last_ts", 0.0)
+                    if time.time() - last_ts > self._lane_timeout:
+                        error, angle = 0.0, 0.0
+                    else:
+                        error, angle = self._lane_last
+                    # 异常帧只做缓存更新, 不做 EMA (否则异常叠加)
+                    with self._lane_lock:
+                        self._lane_cache = (ts, error, angle)
+                    continue
+
+                # 一阶低通滤波, 平滑单帧噪声
+                l_e, l_a = self._lane_last
+                error = l_e + self._lane_ema * (error - l_e)
+                angle = l_a + self._lane_ema * (angle - l_a)
+                self._lane_last = (error, angle)
+                self._lane_last_ts = ts
+                with self._lane_lock:
+                    self._lane_cache = (ts, error, angle)
+            except Exception as e:
+                logger.warning(f"前视巡线线程异常: {e}")
+
+    def _front_correction_loop(self):
+        # 背靠背 correction 推理: 拿最新前视帧跑 self.correction(),
+        # 结果做 EMA 平滑后写入 _corr_cache, 供 get_correction_steer() 读取。
+        while not getattr(self, "_stop_flag", False):
+            try:
+                cap = self.cap_front
+                raw = getattr(cap, "frame", None)
+                if raw is None:
+                    time.sleep(0.01)
+                    continue
+                ts = time.time()
+                try:
+                    res = self.correction(raw)
+                    if not isinstance(res, (list, tuple)) or len(res) < 1:
+                        raise ValueError(f"correction 推理结果异常: {res}")
+                    steer = float(res[0])
+                except Exception as e:
+                    logger.warning(f"前视 correction 推理失败({e}), 保持上一帧")
+                    last_ts = getattr(self, "_corr_last_ts", 0.0)
+                    if time.time() - last_ts > self._lane_timeout:
+                        steer = 0.0
+                    else:
+                        steer = self._corr_last
+                    # 异常帧只做缓存更新, 不做 EMA (否则异常叠加)
+                    with self._corr_lock:
+                        self._corr_cache = (ts, steer)
+                    continue
+
+                # 一阶低通滤波, 平滑单帧噪声
+                self._corr_last = self._corr_last + self._lane_ema * (
+                    steer - self._corr_last)
+                self._corr_last_ts = ts
+                with self._corr_lock:
+                    self._corr_cache = (ts, self._corr_last)
+            except Exception as e:
+                logger.warning(f"前视 correction 线程异常: {e}")
+
+    def _get_correction_cache(self):
+        lock = getattr(self, "_corr_lock", None)
+        if lock is None:
+            self._init_realtime_caches()
+            lock = self._corr_lock
+        with lock:
+            cache = self._corr_cache
+        if cache is None:
+            return 0.0
+        ts, steer = cache
+        if time.time() - ts > self._lane_timeout:
+            return 0.0
+        return steer
+
+    def _get_lane_cache(self):
+        lock = getattr(self, "_lane_lock", None)
+        if lock is None:
+            self._init_realtime_caches()
+            lock = self._lane_lock
+        with lock:
+            cache = self._lane_cache
+        if cache is None:
+            return 0.0, 0.0
+        ts, error, angle = cache
+        if time.time() - ts > self._lane_timeout:
+            return 0.0, 0.0
+        return error, angle
+
+    @staticmethod
+    def _draw_lane_overlay(image, error, angle):
+        """在画面上绘制 d_e / d_a 描边文字(八邻域黑描边 + 中心绿字), 返回新图。"""
+        label_text = f"d_e: {error:7.5f} d_a:{angle:7.5f}"
+        # 用统一厚度偏移描边(黑边+绿字), 避免 cv2 5.x 下
+        # 不同 thickness 渲染字形宽度不一致导致的白绿两层错位
+        org = (20, 40)
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                if dx == 0 and dy == 0:
+                    continue
+                cv2.putText(
+                    image,
+                    label_text,
+                    (org[0] + dx, org[1] + dy),
+                    cv2.FONT_HERSHEY_TRIPLEX,
+                    1.0,
+                    (0, 0, 0),
+                    1,
+                    cv2.LINE_AA,
+                )
+        cv2.putText(
+            image,
+            label_text,
+            org,
+            cv2.FONT_HERSHEY_TRIPLEX,
+            1.0,
+            (0, 255, 0),
+            1,
+            cv2.LINE_AA,
+        )
+
+    def _front_stream_loop(self):
+        # 事件驱动前视推流: 摄像头每抓一帧即被 frame_ready 唤醒并立即发布到 cam1。
+        # 每一帧都叠加 d_e/d_a 描边(有推流不影响缓存中读最新的巡线缓存)
+        while not getattr(self, "_stop_flag", False):
+            try:
+                cap = self.cap_front
+                ready = getattr(cap, "frame_ready", None)
+                if ready is None:
+                    time.sleep(1 / 60.0)
+                    raw = cap.read()
+                    show = raw.copy() if raw is not None else None
+                else:
+                    ready.wait()
+                    ready.clear()
+                    raw = cap.frame
+                    show = raw.copy() if raw is not None else None
+                if show is None:
+                    continue
+                error, angle = self._get_lane_cache()
+                self._draw_lane_overlay(show, error, angle)
+                self.streamer.update_frame(show, "cam1")
+            except Exception as e:
+                logger.warning(f"前视流转发异常: {e}")
+        RealtimeMixin._front_stream_flag = False

@@ -12,6 +12,19 @@ from smartcar.whalesbot.tools import CountRecord
 
 class OcrErnieMixin:
 
+    @staticmethod
+    def _bbox_to_pixel(det_bbox, img_shape, scale=1.2):
+        """归一化 bbox → 像素坐标 (带 padding)。"""
+        x_c, y_c, w, h = det_bbox
+        w *= scale
+        h *= scale
+        img_h, img_w = img_shape[:2]
+        x_c = int((x_c + 1) / 2 * img_w)
+        y_c = int((y_c + 1) / 2 * img_h)
+        w = int(w * img_w / 2)
+        h = int(h * img_h / 2)
+        return int(x_c - w / 2), int(y_c - h / 2), int(x_c + w / 2), int(y_c + h / 2)
+
     def animal_image_analysis(self):
         dets = self.get_detection_results()
         if len(dets) <= 0:
@@ -80,32 +93,7 @@ class OcrErnieMixin:
                     # OCR 已停用(仅 lane + task 模型)
                     if self.ocr_rec is None:
                         return text_out
-                    # x1, y1, w, h = det_bbox
-                    # # print(img.shape)
-                    # # print(x1, y1, w, h)
-                    # x1 = img.shape[1] * (1+x1) / 2 - img.shape[1] * w / 4
-                    # x2 = x1 + img.shape[1] * w / 2
-                    # y1 = img.shape[0] * (1+y1) / 2 - img.shape[0] * h / 4
-                    # y2 = y1 + img.shape[0] * h / 2
-                    # x1 = 0 if x1 < 0 else int(x1)
-                    # x2 = img.shape[1] if x2 > img.shape[1] else int(x2)
-                    # y1 = 0 if y1 < 0 else int(y1)
-                    # y2 = img.shape[0] if y2 > img.shape[0] else int(y2)
-                    # # print(x1, x2, y1, y2)
-
-                    # 将归一化坐标转换为像素坐标
-                    x_c, y_c, w, h = det_bbox
-                    w *= 1.2
-                    h *= 1.2
-                    img_h, img_w = img.shape[:2]
-                    x_c = int((x_c + 1) / 2 * img_w)
-                    y_c = int((y_c + 1) / 2 * img_h)
-                    w = int(w * img_w / 2)
-                    h = int(h * img_h / 2)
-                    x1 = int(x_c - w / 2)
-                    y1 = int(y_c - h / 2)
-                    x2 = int(x_c + w / 2)
-                    y2 = int(y_c + h / 2)
+                    x1, y1, x2, y2 = self._bbox_to_pixel(det_bbox, img.shape, scale=1.2)
 
                     img_txt = img[y1:y2, x1:x2]
 
@@ -162,37 +150,9 @@ class OcrErnieMixin:
                     else:
                         flag = det_label == "order" or det_label == "name"
                     if flag:
-                        # OCR 已停用(仅 lane + task 模型)
                         if self.ocr_rec is None:
                             return None
-                        # x1, y1, w, h = det_bbox
-
-                        # # print(img.shape)
-                        # # print(x1, y1, w, h)
-                        # x1 = img.shape[1] * (1 + x1) / 2 - img.shape[1] * w / 4
-                        # x2 = x1 + img.shape[1] * w / 2
-                        # y1 = img.shape[0] * (1 + y1) / 2 - img.shape[0] * w / 4
-                        # y2 = y1 + img.shape[0] * h / 2
-                        # x1 = 0 if x1 < 0 else int(x1)
-                        # x2 = img.shape[1] if x2 > img.shape[1] else int(x2)
-                        # y1 = 0 if y1 < 0 else int(y1)
-                        # y2 = img.shape[0] if y2 > img.shape[0] else int(y2)
-                        # # print(x1, x2, y1, y2)
-                        # img_txt = img[y1:y2, x1:x2]
-                        # 将归一化坐标转换为像素坐标
-                        x_c, y_c, w, h = det_bbox
-                        w *= 1.1
-                        h *= 1.1
-                        img_h, img_w = img.shape[:2]
-                        x_c = int((x_c + 1) / 2 * img_w)
-                        y_c = int((y_c + 1) / 2 * img_h)
-                        w = int(w * img_w / 2)
-                        h = int(h * img_h / 2)
-                        x1 = int(x_c - w / 2)
-                        y1 = int(y_c - h / 2)
-                        x2 = int(x_c + w / 2)
-                        y2 = int(y_c + h / 2)
-
+                        x1, y1, x2, y2 = self._bbox_to_pixel(det_bbox, img.shape, scale=1.1)
                         img_txt = img[y1:y2, x1:x2]
                         self.streamer.update_frame(img_txt, "cam1")
 
@@ -209,30 +169,4 @@ class OcrErnieMixin:
                             else:
                                 text_out = text
 
-    def yiyan_get_humattr(self, text):
-        """
-        获取人类属性分析
 
-        使用文心一言分析文本中的人类属性信息。
-
-        参数:
-            text: 包含人类属性信息的文本
-
-        返回:
-            dict: 人类属性分析结果
-        """
-        return self.hum_analysis.get_res_json(text)
-
-    def yiyan_get_actions(self, text):
-        """
-        获取动作分析
-
-        使用文心一言分析文本中的动作信息。
-
-        参数:
-            text: 包含动作信息的文本
-
-        返回:
-            dict: 动作分析结果
-        """
-        return self.action_bot.get_res_json(text)

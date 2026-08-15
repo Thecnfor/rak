@@ -140,20 +140,6 @@ class NoneDev:
         self.not_support()
 
 
-class DevWrapInterface:
-    def __init__(self, dev_id=None, port_id=None) -> None:
-        self.dev_id = dev_id
-        self.port_id = port_id
-        self.dev = None
-        self.init_dev()
-
-    def init_dev(self):
-        if self.dev_id == 1:
-            self.dev = Motor_1(driver_id=self.dev_id, port=self.port_id)
-        elif self.dev_id == 2:
-            self.dev = Motor_2(port_id=self.port_id)
-
-
 class Beep:
     def __init__(self) -> None:
         self.beep1 = Buzzer_1()
@@ -165,53 +151,10 @@ class Beep:
         # time.sleep(duration+0.3)
 
 
-class Motors:
-    def __init__(self, port_id=None, id=1, reverse=1) -> None:
-        self.motor_1 = Motor_1(driver_id=id, port=port_id)
-        self.motor_2 = Motor_2(port_id=port_id)
-        self.encoder_2 = EncoderMotor_2(port_id=port_id)
-        self.reverse = reverse
-
-    def set_dir(self, reverse):
-        self.reverse = reverse
-
-    def set_speed(self, speed):
-        speed = speed * self.reverse
-        fucs = [self.motor_1.rotate, self.motor_2.set_speed]
-        fucs[ctl_id](speed)
-
-    def set_angular(self, angular):
-        # angular = self.motor_convert.linear2angluar(angular)
-        pass
-
-    def get_encoder(self):
-        fucs = [self.motor_1.get_encoder, self.encoder_2.get]
-        encoder = fucs[ctl_id]() * self.reverse
-        return encoder
-
-    def reset_encoder(self):
-        fucs = [self.motor_1.reset_encoder, self.encoder_2.reset]
-        return fucs[ctl_id]()
-
-    def reset(self):
-        fucs = [self.motor_1.reset, self.encoder_2.reset]
-        return fucs[ctl_id]()
-
-
 class AnalogInput:
     def __init__(self, port_id=None) -> None:
         self.sensor_1 = AnalogInput_1(port_id)
         self.sensor_2 = AnalogInput_2(port_id)
-
-    def read(self):
-        funcs = [self.sensor_1.read, self.sensor_2.no_act]
-        return float(funcs[ctl_id]())
-
-
-class AnalogInput2:
-    def __init__(self, port_id=None) -> None:
-        self.sensor_1 = NoneDev()
-        self.sensor_2 = Sensor_Analog2_2(port_id)
 
     def read(self):
         funcs = [self.sensor_1.read, self.sensor_2.no_act]
@@ -395,19 +338,6 @@ class Motor:
         return funcs[ctl_id]()
 
 
-class MotorWrap:
-    # 0.06 / 15 * 8
-    def __init__(self, port_id, reverse=1, perimeter=0.06):
-        self.dis_resolution = perimeter / 2 * math.pi
-        self.motor = Motor(port_id, reverse)
-
-    def set_vel(self, vel):
-        self.motor.set_speed(vel)
-
-    def get_dis(self):
-        return self.motor.get_encoder() * self.dis_resolution
-
-
 class Motors:
     # 编码器一圈12栅格编码值48 , 减速比(28/11)^4=41.98183184208729，输出一圈2015.12792842019
     motor_resolutions = {"motor_280": 48 * (28 / 11) ** 4, "motor_280_0": 48 * 46}
@@ -425,10 +355,15 @@ class Motors:
 
         self.motors_1 = NoneDev()
         self.motors_2 = Motors_2(port_list, reverse)
+        self.motor4_2 = Motor4_2()  
+        self.reverse = reverse
 
     def set_speed(self, speeds):
-        funcs = [self.motors_1.set_speed, self.motors_2.set_speed]
-        return funcs[ctl_id](speeds)
+        if ctl_id == 1:
+            if not self.reverse:
+                speeds = [-i for i in speeds]
+            return self.motor4_2.set_speed(list(speeds))
+        return self.motors_1.set_speed(speeds)
 
     def set_angular(self, angular):
         # print(self.encoder_resolution)
@@ -573,73 +508,6 @@ class Battry:
         return self.battry[ctl_id].read()
 
 
-class PositionPID(object):
-    """位置式PID算法实现"""
-
-    def __init__(self, target, cur_val, dt, max, min, p, i, d) -> None:
-        self.dt = dt  # 循环时间间隔
-        self._max = max  # 最大输出限制，规避过冲
-        self._min = min  # 最小输出限制
-        self.k_p = p  # 比例系数
-        self.k_i = i  # 积分系数
-        self.k_d = d  # 微分系数
-
-        self.target = target  # 目标值
-        self.cur_val = cur_val  # 算法当前PID位置值，第一次为设定的初始位置
-        self._pre_error = 0  # t-1 时刻误差值
-        self._integral = 0  # 误差积分值
-
-    def calculate(self):
-        """
-        计算t时刻PID输出值cur_val
-        """
-        error = self.target - self.cur_val  # 计算当前误差
-        # 比例项
-        p_out = self.k_p * error
-        # 积分项
-        self._integral += error * self.dt
-        i_out = self.k_i * self._integral
-        # 微分项
-        derivative = (error - self._pre_error) / self.dt
-        d_out = self.k_d * derivative
-
-        # t 时刻pid输出
-        output = p_out + i_out + d_out
-
-        # 限制输出值
-        if output > self._max:
-            output = self._max
-        elif output < self._min:
-            output = self._min
-
-        self._pre_error = error
-        self.cur_val = output
-        return self.cur_val
-
-    def fit_and_plot(self, count=200):
-        import matplotlib.pyplot as plt
-
-        """
-        使用PID拟合setPoint
-        """
-        counts = np.arange(count)
-        outputs = []
-
-        for i in counts:
-            outputs.append(self.calculate())
-            print("Count %3d: output: %f" % (i, outputs[-1]))
-
-        print("Done")
-        # print(outputs)
-
-        plt.figure()
-        plt.axhline(self.target, c="red")
-        plt.plot(counts, np.array(outputs), "b.")
-        plt.ylim(min(outputs) - 0.1 * min(outputs), max(outputs) + 0.1 * max(outputs))
-        plt.plot(outputs)
-        plt.show()
-
-
 # logger.info("start time:{}".format(time.time()))
 
 
@@ -726,59 +594,10 @@ class StepperWrap:
         return self.stepper.reset()
 
 
-def stepper_test():
-    step1 = StepperWrap(1, reverse=1, perimeter=0.008)
-    step2 = StepperWrap(2, reverse=1, perimeter=0.008)
-
-    while True:
-        step1.set_rad(math.pi / 5 * 2)
-        step2.set_rad(math.pi / 5 * 2)
-        time.sleep(1)
-        step1.set_rad(0)
-        step2.set_rad(0)
-        time.sleep(1)
-
-
-def servo_test():
-    servo4 = ServoBus(4)
-    while True:
-        servo4.set_angle(90)
-        time.sleep(1)
-        servo4.set_angle(0)
-        time.sleep(1)
-
-
 if __name__ == "__main__":
     beep = Beep()
     beep.rings(200, 0.2)
-    # time.sleep(1)
     battry = Battry()
-    # Thread(target=stepper_test).start()
-    # servo4 = ServoBus(1)
-    # # # servo3 = ServoBus(3)
-    # for i in range(100):
-    #     servo4.set_angle(60)
-    # #     # servo3.set_angle(90)
-    #     time.sleep(1)
-    #     servo4.set_angle(0)
-    # #     # servo3.set_angle(0)
-    #     time.sleep(1)
-    # servo4.set_angle(0)
-    # A1 = AnalogInput2(1)
-    # while True:
-    #     print(A1.read())
-    #     time.sleep(0.5)
-    # p2 = PoutD(2)
-    # p3 = PoutD(3)
-    # p2.set(1)
-    # p3.set(0)
-    # time.sleep(2)
-    # p2.set(0)
-    # p3.set(1)
-    # step1 = StepperWrap(3,reverse=1, perimeter=0.008)
-    # step1.set_velocity(-0.04)
-    # time.sleep(1)
-    # step1.set_velocity(0)
     # rad1 = step1.get_dis()
     # rad1 = step1.get_rad()
     # for i in range(10):

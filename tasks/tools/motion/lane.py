@@ -41,7 +41,7 @@ class LaneMixin:
             # 只用转弯(d_e); error_y(d_a) 弃用, 横向通道置 0
             _, error_angle = self.get_lane_results()
             # 转弯通道: lane 模型 error_angle -> 角速度
-            _, angle_speed = self.lane_pid.get_out(0.0, -error_angle)
+            angle_speed = self.lane_pid_angle(-error_angle)
             # 居中通道: correction steer 叠加到角速度(打方向回正)
             correction_steer = self.get_correction_steer()
             if abs(correction_steer) > corr_threshold:
