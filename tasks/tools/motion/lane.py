@@ -43,9 +43,10 @@ class LaneMixin:
             # 转弯通道: lane 模型 error_angle -> 角速度
             angle_speed = self.lane_pid_angle(-error_angle)
             # 居中通道: correction steer 叠加到角速度(打方向回正)
+            # 注意: steer>0 按打标约定=右转回正; 实车发现方向反了, 用减号
             correction_steer = self.get_correction_steer()
             if abs(correction_steer) > corr_threshold:
-                angle_speed += correction_steer * corr_weight
+                angle_speed -= correction_steer * corr_weight
             # correction steer 大小驱动纵向速度分级(误差大降速)
             k_err = max(0.0, 1.0 - abs(correction_steer) / err_max)
             run_speed = v_min + (v_max - v_min) * k_err
