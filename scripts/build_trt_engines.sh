@@ -8,10 +8,11 @@
 # 用法:  bash build_trt_engines.sh [--rebuild]
 set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$SCRIPT_DIR"
 
-ENGINE_DIR="$PWD/trt_engines"
-MODELS_DIR="smartcar/paddlebaidu/models"
+ENGINE_DIR="$REPO_ROOT/trt_engines"
+MODELS_DIR="$REPO_ROOT/smartcar/paddlebaidu/models"
 TRTEXEC=/usr/src/tensorrt/bin/trtexec
 REBUILD=0
 [ "${1:-}" = "--rebuild" ] && REBUILD=1
