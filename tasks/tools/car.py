@@ -67,8 +67,8 @@ class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
         self.camera_init(cfg)
         # paddle推理初始化
         self.paddle_infer_init()
-        # 侧视实时流(cam2)转发 + 持续检测线程(后端就绪后再启动, 避免空等)
-        self.start_side_stream()
+        # 侧视(cam2: 检测推理+推流) + 前视(cam1: 巡线推理+描边推流) 共 4 个后台线程
+        self.start_realtime_streams()
         # 文心一言分析初始化
         self.ernie_bot_init()
 
