@@ -7,7 +7,8 @@
 # 建议: 重启后的干净环境(未开 IDE)下执行, 避免 3.5GB 内存被占导致 NvMap 分配失败。
 # 用法:  bash build_trt_engines.sh [--rebuild]
 set -uo pipefail
-cd "$(dirname "$0")"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR"
 
 ENGINE_DIR="$PWD/trt_engines"
 MODELS_DIR="smartcar/paddlebaidu/models"
@@ -43,7 +44,7 @@ build_one() {
     # 部分检测模型需要静态化输入 + 补 Squeeze.axes 才能被 TRT 解析
     local src_onnx="$onnx"
     if [ -n "$fix_onx" ]; then
-        python3 "$(dirname "$0")/fix_onnx_for_trt.py" "$onnx" "$ENGINE_DIR/${name}_trt.onnx"
+        python3 "$SCRIPT_DIR/fix_onnx_for_trt.py" "$onnx" "$ENGINE_DIR/${name}_trt.onnx"
         src_onnx="$ENGINE_DIR/${name}_trt.onnx"
     fi
 
