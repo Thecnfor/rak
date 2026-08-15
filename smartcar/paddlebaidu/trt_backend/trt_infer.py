@@ -32,11 +32,11 @@ from .preprocess import (
 from .utils import nms
 
 # repo_root = smartcar/paddlebaidu/trt_backend -> 上 3 层到项目根
-_REPO_ROOT = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 _MODELS_DIR = os.path.join(_REPO_ROOT, "smartcar", "paddlebaidu", "models")
-TRT_ENGINE_DIR = os.environ.get("TRT_ENGINE_DIR",
-                                os.path.join(_REPO_ROOT, "trt_engines"))
+TRT_ENGINE_DIR = os.environ.get(
+    "TRT_ENGINE_DIR", os.path.join(_REPO_ROOT, "trt_engines")
+)
 
 # model_dir(config) -> 引擎文件名
 ENGINE_FILE = {
@@ -51,6 +51,7 @@ _DYN_BUDGET = 4096
 
 def _load_yaml(path):
     import yaml
+
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
@@ -72,8 +73,7 @@ class DetectResult:
             self.bbox[2] = 639
         if self.bbox[3] > 479:
             self.bbox[3] = 479
-        self.center = [self.bbox[0] + self.bbox[2] / 2,
-                       self.bbox[1] + self.bbox[3] / 2]
+        self.center = [self.bbox[0] + self.bbox[2] / 2, self.bbox[1] + self.bbox[3] / 2]
         self.middle = [320, 240]
 
     def tolist_nomoralize(self, size):
@@ -84,13 +84,21 @@ class DetectResult:
         normalized_y = float((self.bbox[1] + self.bbox[3]) / 2 - pt_mid[1]) / pt_mid[1]
         normalized_w = float(self.bbox[2] - self.bbox[0]) / pt_mid[0]
         normalized_h = float(self.bbox[3] - self.bbox[1]) / pt_mid[1]
-        return [self.class_id, self.object_id, self.label_name, self.score] + \
-            [normalized_x, normalized_y, normalized_w, normalized_h]
+        return [self.class_id, self.object_id, self.label_name, self.score] + [
+            normalized_x,
+            normalized_y,
+            normalized_w,
+            normalized_h,
+        ]
 
     def __repr__(self):
-        return ("cls_id:{} obj_id:{} label:{} score:{:.3f} bbox:{}".format(
-            self.class_id, self.object_id, self.label_name, self.score,
-            self.bbox.tolist()))
+        return "cls_id:{} obj_id:{} label:{} score:{:.3f} bbox:{}".format(
+            self.class_id,
+            self.object_id,
+            self.label_name,
+            self.score,
+            self.bbox.tolist(),
+        )
 
 
 class TrtEngine:
@@ -153,8 +161,7 @@ class TrtEngine:
             actual = tuple(self.context.get_tensor_shape(name))
             n = int(np.prod([abs(d) for d in actual]))
             buf = np.empty(n, dtype=np_dtype)
-            cuda_utils.memcpy_dtoh(buf, self._ptrs[name],
-                                   n * np_dtype.itemsize)
+            cuda_utils.memcpy_dtoh(buf, self._ptrs[name], n * np_dtype.itemsize)
             results[name] = buf.reshape(actual)
         return results
 
@@ -175,8 +182,7 @@ class TrtYoloeInfer:
         self.engine = TrtEngine(engine_path)
 
         # 读取模型预处理配置与标签
-        cfg = _load_yaml(os.path.join(_MODELS_DIR, model_dir,
-                                      "infer_cfg.yml"))
+        cfg = _load_yaml(os.path.join(_MODELS_DIR, model_dir, "infer_cfg.yml"))
         preprocess_ops = []
         for op_info in cfg["Preprocess"]:
             op = op_info.copy()
@@ -190,8 +196,9 @@ class TrtYoloeInfer:
         im, im_info = preprocess(image_rgb, self.ops)  # im = CHW float32
         inputs = {
             "image": np.ascontiguousarray(im)[np.newaxis, :],
-            "scale_factor": np.ascontiguousarray(
-                im_info["scale_factor"])[np.newaxis, :],
+            "scale_factor": np.ascontiguousarray(im_info["scale_factor"])[
+                np.newaxis, :
+            ],
         }
         out = self.engine.infer(inputs)
         # 输出顺序: 按 engine 输出索引 -> boxes, boxes_num
@@ -208,7 +215,7 @@ class TrtYoloeInfer:
         filter_boxes = []
         for i in range(len(np_boxes_num)):
             bnum = int(np_boxes_num[i])
-            boxes_i = boxes_all[start_idx:start_idx + bnum, :]
+            boxes_i = boxes_all[start_idx : start_idx + bnum, :]
             idx = boxes_i[:, 1] > self.threshold
             filter_boxes.append(boxes_i[idx, :])
             start_idx += bnum

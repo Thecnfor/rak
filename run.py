@@ -8,7 +8,7 @@ from tasks.tools import create_car
 
 
 def main():
-    car = create_car(reset=True)  # 初始化（含机械臂与里程计复位）
+    car = create_car(reset=False)  # 初始化（含机械臂与里程计复位）
     try:
         while True:
             pass

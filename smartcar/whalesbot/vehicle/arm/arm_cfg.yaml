@@ -35,7 +35,7 @@ horiz_cfg:
 pos_cfg:
   pose_enable: true
   pose_horiz: 0.0
-  pose_vert: -2.4999999999999998e-06
+  pose_vert: 0
   side: LEFT
 vert_cfg:
   motor:
