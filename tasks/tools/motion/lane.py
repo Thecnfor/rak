@@ -29,7 +29,8 @@ class LaneMixin:
                 return
 
             error_y, error_angle = self.get_lane_results()
-            y_speed, angle_speed = self.lane_pid.get_out(-error_y, -error_angle)
+            y_speed = self.lane_pid_y(-error_y)
+            angle_speed = self.lane_pid_angle(-error_angle)
             # 中线误差驱动的纵向速度分级(误差大降速)
             k_err = max(0.0, 1.0 - abs(error_y) / err_max)
             run_speed = v_min + (v_max - v_min) * k_err

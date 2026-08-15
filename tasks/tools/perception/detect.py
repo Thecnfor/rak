@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """感知查询(DetectMixin): 目标检测、巡线结果、目标定位与结果可视化(从 perception.py 拆分而来)。"""
+import time
 from typing import List
 
 import cv2
@@ -18,8 +19,6 @@ class DetectMixin:
         返回:
             list: - 检测结果列表，每个元素包含 [cls_id, det_id, label, score, x_c, y_c, w, h]
         """
-        import time
-
         self.side_image = self.cap_side.read()
         image = self.side_image.copy()
         det_task = self.task_det(image)

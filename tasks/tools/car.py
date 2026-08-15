@@ -5,12 +5,11 @@ import sys
 import threading
 import time
 
-from smartcar import Camera, Streamer, logger
+from smartcar import Camera, Streamer, PID, logger
 from smartcar.whalesbot.tools import get_yaml
 from smartcar.whalesbot.vehicle import (
     ArmController,
     Beep,
-    BluetoothPad,
     Key4Btn,
     MecanumDriver,
     ScreenShow,
@@ -20,10 +19,6 @@ from smartcar.whalesbot.vehicle.base.controller_wrap import PoutD
 
 from .motion import MotionMixin
 from .perception import PerceptionMixin
-from .pids import PidCal2
-
-# 添加上本地目录
-sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
 
 class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
@@ -111,7 +106,6 @@ class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
         self.servo_1_flag = 0
         self.servo_1 = ServoPwm(1, 180)
         self.servo_1.set_angle(self.servo_1_angle_list[self.servo_1_flag])
-        self.blue_pad = BluetoothPad()
         self.shoot = PoutD(4)
 
     def set_storage(self, state=False):
@@ -140,8 +134,8 @@ class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
         参数:
             cfg: 配置字典，包含PID控制器的配置信息
         """
-        self.lane_pid = PidCal2(**cfg["lane_pid"])
-        self.det_pid = PidCal2(**cfg["det_pid"])
+        self.lane_pid_y = PID(**cfg["lane_pid"]["cfg_pid_y"])
+        self.lane_pid_angle = PID(**cfg["lane_pid"]["cfg_pid_angle"])
 
     def camera_init(self, cfg):
         """
