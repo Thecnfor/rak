@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.join(_BASE_DIR, "..", ".."))
 _REPO_ROOT = os.path.abspath(os.path.join(_BASE_DIR, "..", "..", "..", ".."))
 sys.path.insert(0, _REPO_ROOT)
 
-from trt_backend import TrtYoloeInfer, TrtLaneInfer
+from trt_backend import TrtYoloeInfer, TrtLaneInfer, TrtCorrectionInfer
 
 
 def get_path_relative(*args):
@@ -71,6 +71,7 @@ class InferServer:
         InferFactory = {
             "YoloeInfer": TrtYoloeInfer,
             "LaneInfer": TrtLaneInfer,
+            "CorrectionInfer": TrtCorrectionInfer,
         }
         # 创建推理模型
         self.infer_dict = {}

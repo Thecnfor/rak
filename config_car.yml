@@ -137,6 +137,13 @@ infer_cfg:
     img_size: [128, 128]
     run_mode: trt_fp16
 
+  - name: correction
+    infer_type: CorrectionInfer
+    model_dir: correction_model
+    port: 5003
+    img_size: [128, 128]
+    run_mode: trt_fp16
+
   - name: task
     infer_type: YoloeInfer
     model_dir: task2026

@@ -16,6 +16,9 @@ class DetectMixin:
     _lane_last = (0.0, 0.0)
     # 单次推理异常允许的最大时长(秒), 超时则按无误差直行处理
     _lane_timeout = 0.3
+    # correction CNN steer 缓存(推理异常时保持上一帧, 首次为 0)
+    _corr_last = 0.0
+    _corr_last_ts = 0.0
 
     def get_detection_results(
         self, sort_pos=(0, 0), limit_x=1, limit_y=1
@@ -109,6 +112,33 @@ class DetectMixin:
         self.streamer.update_frame(image, "cam1")
         # print(label_text)
         return error, angle
+
+    def get_correction_steer(self):
+        """读取 correction CNN 的 steer(居中/回正), EMA 滤波后返回。
+
+        返回 float ∈ [-1, +1]: >0 表示需要往一个方向转回中心(方向约定见
+        训练打标), <0 为反方向, ≈0 已居中。推理失败/超时保持上一帧。
+        """
+        ts = time.time()
+        try:
+            image = self.cap_front.read().copy()
+            if image is None:
+                raise ValueError("cap_front 无画面")
+            res = self.correction(image)
+            if not isinstance(res, (list, tuple)) or len(res) < 1:
+                raise ValueError(f"correction 推理结果异常: {res}")
+            steer = float(res[0])
+        except Exception as e:
+            logger.warning(f"correction 推理失败({e}), 保持上一帧")
+            last_ts = getattr(self, "_corr_last_ts", 0.0)
+            if time.time() - last_ts > self._lane_timeout:
+                return 0.0
+            return self._corr_last
+
+        # 一阶低通滤波, 平滑单帧噪声
+        self._corr_last = self._corr_last + self._lane_ema * (steer - self._corr_last)
+        self._corr_last_ts = ts
+        return self._corr_last
 
     def get_target_location(self, det):
         """

@@ -58,6 +58,8 @@ build_one() {
 
 # lane: CLRNet, 输入固定 1x3x128x128
 build_one lane lane_model cnn_lane.pdmodel cnn_lane.pdiparams "" "inputs:1x3x128x128"
+# correction: 居中/回正 CNN, 单 steer 输出, 输入固定 1x3x128x128(输入名 inputs)
+build_one correction correction_model correction.pdmodel correction.pdiparams "" "inputs:1x3x128x128"
 # task: PP-YOLOE 检测, 静态化输入 + 补 Squeeze axes 后构建
 build_one task task2026 model.pdmodel model.pdiparams fix "image:1x3x640x640,scale_factor:1x2"
 

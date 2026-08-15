@@ -8,32 +8,48 @@ STOP_PARAM = True
 
 class LaneMixin:
 
+    # correction CNN 叠加到角速度的参数(实车标定)
+    _corr_threshold = 0.05   # |steer| 小于此值不启用(防抖)
+    _corr_weight = 0.5       # steer 1.0 对应的角速度贡献
+
     def lane_base(self, speed, end_fuction, stop=STOP_PARAM):
         """
-        车道保持基础方法
+        车道保持基础方法(双模型版)
 
-        使用前置摄像头进行车道检测和保持, 根据中线误差/转弯误差调整车辆。
-        error 为中线误差(道路正中相对车头中线的横向偏差), angle 为转弯误差。
+        使用前置摄像头进行车道检测和保持:
+            - 转弯: lane 模型的 error_angle(d_e) 进 cfg_pid_angle -> 角速度
+            - 居中: correction CNN 的 steer 叠加到角速度(打方向回正, 同时
+              修正"不居中"与"不平行"); y_speed 横向通道不再使用
+            - lane 模型的 error_y(中线误差, 单模型版曾用它做横向平移)弃用
 
-        控制策略:
-            - 中线误差大时降速(弯道更稳), 误差小时全速直行;
-            - 角度通道对 -angle 走 PID(微分对测量值差分), 抑制摆动。
+        标定:
+            _corr_threshold: |steer| 低于此值不叠加, 防抖(默认 0.05)
+            _corr_weight:    steer 1.0 对应的角速度贡献(默认 0.5;
+                             居中漂移 -> 调高, 跟线不稳 -> 调低, 抖动 -> 调大阈值)
         """
-        # 速度分级: 中线误差 |error| >= _lane_err_max 时降到最低速
+        # 速度分级: correction steer |s| >= _lane_err_max 时降到最低速
         err_max = getattr(self, "_lane_err_max", 0.3)
         v_min = getattr(self, "_lane_v_min", 0.15)
         v_max = max(speed, v_min)
+        corr_threshold = getattr(self, "_corr_threshold", 0.05)
+        corr_weight = getattr(self, "_corr_weight", 0.5)
 
         while True:
             if self._stop_flag:
                 return
 
-            error_y, error_angle = self.get_lane_results()
-            y_speed, angle_speed = self.lane_pid.get_out(-error_y, -error_angle)
-            # 中线误差驱动的纵向速度分级(误差大降速)
-            k_err = max(0.0, 1.0 - abs(error_y) / err_max)
+            # 只用转弯(d_e); error_y(d_a) 弃用, 横向通道置 0
+            _, error_angle = self.get_lane_results()
+            # 转弯通道: lane 模型 error_angle -> 角速度
+            _, angle_speed = self.lane_pid.get_out(0.0, -error_angle)
+            # 居中通道: correction steer 叠加到角速度(打方向回正)
+            correction_steer = self.get_correction_steer()
+            if abs(correction_steer) > corr_threshold:
+                angle_speed += correction_steer * corr_weight
+            # correction steer 大小驱动纵向速度分级(误差大降速)
+            k_err = max(0.0, 1.0 - abs(correction_steer) / err_max)
             run_speed = v_min + (v_max - v_min) * k_err
-            self.set_velocity(run_speed, y_speed, angle_speed)
+            self.set_velocity(run_speed, 0.0, angle_speed)
             if end_fuction():
                 break
         if stop:

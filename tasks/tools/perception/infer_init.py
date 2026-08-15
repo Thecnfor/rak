@@ -14,6 +14,8 @@ class InferInitMixin:
         """
         # 前置巡线
         self.crusie = ClintInterface("lane")
+        # correction CNN (居中/回正 steer, 叠加到角速度)
+        self.correction = ClintInterface("correction")
         # 前置左右方向识别
         # self.front_det = ClintInterface('front')
         # 任务识别

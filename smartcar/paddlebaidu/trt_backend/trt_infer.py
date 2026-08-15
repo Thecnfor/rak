@@ -42,6 +42,7 @@ TRT_ENGINE_DIR = os.environ.get("TRT_ENGINE_DIR",
 ENGINE_FILE = {
     "lane_model": "lane_fp16.engine",
     "task2026": "task_fp16.engine",
+    "correction_model": "correction_fp16.engine",
 }
 
 # 动态输出维度的预算上限(rows), 超出会报错 — 实际检测框数量远小于此
@@ -254,6 +255,46 @@ class TrtLaneInfer:
         out = self.engine.infer({"inputs": x})
         name = next(iter(out))
         output_data = out[name][0]
+        if normalize_out:
+            return output_data.tolist()
+        return output_data
+
+    def __call__(self, image, *args, **kwds):
+        return self.predict(image, *args, **kwds)
+
+    def close(self):
+        del self.engine
+
+
+class TrtCorrectionInfer:
+    """correction CNN (替代动态图 CorrectionInfer)。单 steer 输出。
+
+    输入 128x128 cam1 帧, 输出 steer ∈ [-1, +1]。
+    预处理与 TrtLaneInfer 完全一致: 两模型都以 RGB 训练, 摄像头帧是 BGR,
+    所以 _preprocess 同样做 /127.5-1 + BGR->RGB + CHW。输出是单个标量
+    (shape (1,)), predict 返回 [steer]。
+    """
+
+    def __init__(self, model_dir="correction_model", run_mode="trt_fp16"):
+        self.model_dir = model_dir
+        self.run_mode = run_mode
+        engine_path = os.path.join(TRT_ENGINE_DIR, ENGINE_FILE[model_dir])
+        self.engine = TrtEngine(engine_path)
+        self.img_size = (128, 128)
+        self.mean = 1.0
+
+    def _preprocess(self, img):
+        img = cv2.resize(img, self.img_size)
+        img = img.astype(np.float32) / 127.5 - self.mean  # 与 TrtLaneInfer 一致
+        img = img[:, :, ::-1].astype("float32")  # bgr -> rgb
+        img = img.transpose((2, 0, 1))  # hwc -> chw
+        return np.ascontiguousarray(img)[np.newaxis, :]
+
+    def predict(self, image, normalize_out=False):
+        x = self._preprocess(image)
+        out = self.engine.infer({"inputs": x})
+        name = next(iter(out))
+        output_data = out[name][0]  # shape (1,) -> [steer]
         if normalize_out:
             return output_data.tolist()
         return output_data
