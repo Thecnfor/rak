@@ -2,15 +2,19 @@
 """巡线/车道保持(LaneMixin): 前置摄像头车道闭环控制(从 motion.py 拆分而来)。"""
 import time
 
+from .. import cfg  # 巡线参数统一入口(tasks/tools/cfg.py)
+
 # 方法默认参数用到的停止标志默认值(与 MyCar.STOP_PARAM 类属性保持一致)
 STOP_PARAM = True
 
 
 class LaneMixin:
 
-    # correction CNN 叠加到角速度的参数(实车标定)
-    _corr_threshold = 0.05  # |steer| 小于此值不启用(防抖)
-    _corr_weight = 0.5  # steer 1.0 对应的角速度贡献
+    # correction CNN 叠加到角速度的参数(实车标定, 统一走 tasks/tools/cfg.py)
+    _corr_threshold = cfg.CORR_THRESHOLD  # |steer| 小于此值不启用(防抖)
+    _corr_weight = cfg.CORR_WEIGHT  # steer 1.0 对应的角速度贡献
+    # 巡线前进速度: 与实测 lane.py 一致, 恒定不随误差降速(_lane_v_min == speed 时即恒定)
+    _lane_v_min = cfg.V_FORWARD  # 速度分级下限(m/s): 设成与触发配置 speed 相同 => 全程恒速
 
     def lane_base(self, speed, end_fuction, stop=STOP_PARAM):
         """
@@ -28,10 +32,10 @@ class LaneMixin:
         """
         # 速度分级: correction steer |s| >= _lane_err_max 时降到最低速
         err_max = getattr(self, "_lane_err_max", 0.3)
-        v_min = getattr(self, "_lane_v_min", 0.15)
+        v_min = getattr(self, "_lane_v_min", cfg.V_FORWARD)
         v_max = max(speed, v_min)
-        corr_threshold = getattr(self, "_corr_threshold", 0.05)
-        corr_weight = getattr(self, "_corr_weight", 0.5)
+        corr_threshold = getattr(self, "_corr_threshold", cfg.CORR_THRESHOLD)
+        corr_weight = getattr(self, "_corr_weight", cfg.CORR_WEIGHT)
 
         while True:
             if self._stop_flag:
@@ -39,8 +43,8 @@ class LaneMixin:
 
             # 源头合成后的新一对: steer 居中 + da 转弯
             steer, da = self.get_lane_results()
-            # 转弯通道: lane 模型 d_a -> 角速度
-            angle_speed = self.lane_pid_angle(-da)
+            # 转弯通道: da 先过死区(削直线噪声), 再进角 PID -> 角速度
+            angle_speed = self.lane_pid_angle(-cfg.lane_deadzone(da))
             # 居中通道: correction steer 叠加到角速度(打方向回正)
             # 注意: steer>0 按打标约定=右转回正; 实车发现方向反了, 用减号
             if abs(steer) > corr_threshold:

@@ -58,6 +58,8 @@ speed:
 # 巡线 PID - 用于车道线巡航控制
 #   cfg_pid_y:     中线误差 -> 横向平移速度
 #   cfg_pid_angle: 转弯误差 -> 角速度; Kd 对测量值做差分(微分先行), 抑制摆动
+# 注意: lane_pid_angle 的 PID 参数已统一走 tasks/tools/cfg.py (实车标定),
+#       此处的 cfg_pid_angle 仅作兜底, 修改请改 cfg.py。
 lane_pid:
   cfg_pid_y:
     Kp: 5
@@ -68,9 +70,9 @@ lane_pid:
   cfg_pid_angle:
     Kp: 3
     Ki: 0
-    Kd: 0.5
+    Kd: 0
     setpoint: 0
-    output_limits: [-1.5, 1.5]
+    output_limits: [-2.5, 2.5]
 
 # 检测巡航 PID - 用于目标检测后的跟随控制
 det_pid:

@@ -9,6 +9,8 @@ import zmq
 
 from smartcar.whalesbot.tools import logger
 
+from .. import cfg  # 巡线参数统一入口(tasks/tools/cfg.py)
+
 
 class RealtimeMixin:
 
@@ -17,9 +19,9 @@ class RealtimeMixin:
     _front_stream_flag = False
 
     # 巡线滤波系数(一阶低通 EMA, 0~1, 越大越跟随, 越小越平滑)
-    _lane_ema = 0.35
+    _lane_ema = cfg.LANE_EMA
     # 单次推理异常允许的最大时长(秒), 超时则按无误差直行处理
-    _lane_timeout = 0.3
+    _lane_timeout = cfg.LANE_TIMEOUT
 
     def start_realtime_streams(self):
         """启动侧视(推理+推流)与前视(巡线推理+推流)共 4 个后台线程, 由 MyCar 初始化时调用。"""
