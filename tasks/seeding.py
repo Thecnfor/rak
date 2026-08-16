@@ -17,24 +17,24 @@ CYLINDERS = ("cylinder_1", "cylinder_2", "cylinder_3")
 
 # ── 吸嘴 setpoint(目标在吸嘴正下方时 bbox 中心, 归一化) — 需重标 ──
 NOZZLE = {
-    "cylinder_1": (0.050, -0.425),
-    "cylinder_2": (0.140, -0.420),
-    "cylinder_3": (0.120, -0.410),
+    "cylinder_1": (0.037, -0.326),
+    "cylinder_2": (0.072, -0.306),
+    "cylinder_3": (0.050, -0.425),
 }
 MARKER = "cylinder_set"
 MARKER_NOZZLE = (0.072, -0.331)
 
 # ── 姿态(arm: LEFT/MID/RIGHT; x/y 米, y 正=抬升) — 需重标 ──────────
-PICK_POSE = dict(x=0.0, y=0.2, arm="LEFT", hand="DOWN")
-PLACE_POSE = dict(x=0.0, y=0.2, arm="RIGHT", hand="DOWN")
-GRASP_Y, LIFT_Y = 0.0, 0.2          # 降到底吸 / 抬回
-PLACE_Y, PLACE_LIFT_Y = 0.02, 0.04  # 放苗降 / 释放后抬离(防拖拽)
+PICK_POSE = dict(x=0.0, y=-0.05, arm="RIGHT", hand="DOWN")
+PLACE_POSE = dict(x=0.0, y=-0.2, arm="LEFT", hand="DOWN")
+GRASP_Y, LIFT_Y = 0.0, -0.2          # 降到底吸 / 抬回
+PLACE_Y, PLACE_LIFT_Y = -0.02, -0.04  # 放苗降 / 释放后抬离(防拖拽)
 
 MOVE_V = 0.1  # 底盘平移限速, 降漂移
 
 
 # ── 伺服参数(抓/放分开, 来自 4_car task_config.yml) ───────────────────
-PICK_SERVO = dict(gains=(0.5, 0.30), sign=(1.0, -1.0), deadzone=0.05)
+PICK_SERVO = dict(gains=(0.5, 0.05), sign=(1.0, -1.0), deadzone=0.05)
 PLACE_SERVO = dict(gains=(0.3, 0.2), sign=(1.0, 1.0), deadzone=0.06)
 
 

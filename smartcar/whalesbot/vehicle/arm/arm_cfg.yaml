@@ -33,9 +33,6 @@ horiz_cfg:
   - 0
   - 0.315
 pos_cfg:
-  pose_enable: true
-  pose_horiz: 0.0
-  pose_vert: 0
   side: LEFT
 vert_cfg:
   motor:
@@ -44,14 +41,13 @@ vert_cfg:
     perimeter: 0.008
   limit_port: 5
   pid:
-    Kp: 4
-    Ki: 0.1
+    Kp: 3
+    Ki: 0
     Kd: 0.1
     setpoint: 0
     output_limits:
-    - -2
-    - 2
+    - -0.6
+    - 0.6
   threshold:
   - 0
   - 0.2
-arm_length: 0.23

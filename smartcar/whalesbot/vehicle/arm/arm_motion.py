@@ -24,6 +24,8 @@ from .. import MotorWrap, StepperWrap, AnalogInput
 
 # 位置误差阈值(判定到达目标) - 硬件标定值
 POSITION_ERROR_THRESHOLD = 4e-4
+# Y 轴输出死区: 误差小于该值(m)直接停电机, 避免到位后微小速度来回摆动
+Y_DEADZONE = 1e-3
 # 停止检测阈值 - 硬件标定值
 STOP_CHECK_THRESHOLD = 1e-10
 
@@ -101,6 +103,12 @@ class ArmMotion:
         self.y_pose_last = self.y_pose_now
 
         error = target_pose - self.y_pose_now
+
+        # 输出死区: 误差足够小时直接停电机, 避免到位后微小速度来回摆动
+        if abs(error) < Y_DEADZONE:
+            self.y_speed(0)
+            return True
+
         velocity = self.y_pid(self.y_pose_now)
 
         self.y_speed(velocity)
@@ -117,7 +125,7 @@ class ArmMotion:
         直到撞上下限位传感器触发, 随后停止电机并把该位置设为 Y 轴 0 点。
         """
         # 固定下行速度(负值, 取 PID 输出限幅下限), 无脑下降直至限位
-        down_velocity = 0.5
+        down_velocity = 0.4
         while True:
             # 与 reset_x 同理: MC602 速度命令点动式, 需循环内持续重发 y_speed
             self.y_speed(down_velocity)
@@ -152,6 +160,7 @@ class ArmMotion:
         Args:
             velocity: 速度值
         """
+        # 钳位到 y_velocity_limit(output_limits), 避免对步进电机大幅正负跳变(异响/抖动)
         velocity = limit_val(velocity, *self.y_velocity_limit)
         self.motor_y.set_velocity(velocity)
 
@@ -430,9 +439,6 @@ class ArmMotion:
         self.x_pid.setpoint = x_pos
         self.x_pid.output_limits = (-speed_x, speed_x)
 
-        # 开始移动前, 位置信息定义, 如果中间中断此时位置信息无用
-        self.save_config(pose_enable=False)
-
         while True:
             # 到达结束标志结束
             if y_flag and x_flag:
@@ -458,14 +464,11 @@ class ArmMotion:
                         self.y_speed(0)
                     self.y_pose_start = self.motor_y.get_dis()
                     self.y_pose_now = 0
-                    self.save_config()
 
             if not x_flag:
                 if self.x_pid_moveto(x_pos):
                     self.x_speed(0)
                     x_flag = True
-
-        self.save_config()
 
     # ==================== 异步 tick 移动(配合异步串口引擎, 不阻塞主流程) ====================
     def goto_position_async(
@@ -499,7 +502,6 @@ class ArmMotion:
             self.x_speed(0)
             self.y_speed(0)
             self._async_plan = None
-            self.save_config()
             return True
         return False
 
@@ -560,14 +562,3 @@ class ArmMotion:
         self.x_speed(0)
         self.y_speed(0)
         self._async_plan = None
-
-    def set_position_start(self, y_position):
-        """
-        设置起始位置
-
-        Args:
-            y_position: 竖直位置
-        """
-        self.y_pose_start = self.y_pose_now
-        self.x_pose_start = self.x_pose_now
-        self.save_config()

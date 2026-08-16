@@ -68,13 +68,11 @@ class ArmController(ArmMotion):
         with open(self.yaml_path, "r") as f:
             self.config = yaml.load(f, Loader=yaml.FullLoader)
 
-        """机械臂的长度"""
-        self.arm_length: float = self.config["arm_length"]
-        # 初始化各部分参数(先 XY 轴以建立 motor_y/motor_x, 再手部, 最后位姿)
+        # 初始化各部分参数(先 XY 轴以建立 motor_y/motor_x, 再手部, 最后方向)
         self.y_params_init(**self.config["vert_cfg"])
         self.x_params_init(**self.config["horiz_cfg"])
         self.hand_params_init(**self.config["hand_cfg"])
-        self.position_params_init(**self.config["pos_cfg"])
+        self.side = self.config["pos_cfg"]["side"]
 
     def hand_params_init(self, hand, hand2, grap):
         """
@@ -101,39 +99,6 @@ class ArmController(ArmMotion):
         """
         self.pump.set(not value)
         self.valve.set(value)
-
-    def position_params_init(self, pose_enable, pose_horiz, pose_vert, side):
-        """
-        初始化位置参数
-
-        Args:
-            pose_enable: 是否启用位置
-            pose_horiz: 水平位置
-            pose_vert: 竖直位置
-            side: 方向
-        """
-        self.pose_enable = pose_enable
-        self.y_pose_start = self.motor_y.get_dis() - pose_vert
-        self.y_pose_now = pose_vert
-        self.x_pose_start = self.motor_x.get_dis() - pose_horiz
-        self.x_pose_now = pose_horiz
-        self.side = side
-
-    def save_config(self, pose_enable=True):
-        """
-        保存配置到YAML文件
-
-        Args:
-            pose_enable: 是否启用位置
-        """
-        self.config["pos_cfg"] = {
-            "pose_enable": pose_enable,
-            "pose_horiz": self.x_pose_now,
-            "pose_vert": self.y_pose_now,
-            "side": self.side,
-        }
-        with open(self.yaml_path, "w") as stream:
-            yaml.dump(self.config, stream, sort_keys=False)
 
     def set_manually(self):
         """
@@ -164,16 +129,12 @@ class ArmController(ArmMotion):
         self.set_hand_angle("UP")
         self.set_arm_angle("LEFT")
         print("开始重置竖直方向位置")
-        self.reset_y()
-        print("开始重置水平方向位置")
-        self.reset_x()
-        # 回零兜底: 串口/传感器抖动时不回零也不应中断整个开机流程
         try:
-            self.x = 0
-            self.y = 0
-        except Exception as e:
-            logger.warning(f"机械臂回零失败({e}), 跳过(位姿可能不准)")
-        self.save_config()
+            self.reset_y()  # 0点: 下降撞限位, 该位置为 Y 轴 0 点(y_pose_now=0)
+        finally:
+            self.move_y_position(-0.05)
+        print("开始重置水平方向位置")
+        self.reset_x()  # 0点: 撞墙到头, 该位置为 X 轴 0 点(x_pose_now=0)
         print("重置位置完成")
 
     def switch_side(self, side):
@@ -211,7 +172,9 @@ class ArmController(ArmMotion):
         self._arm_angle_last = _angle
         self.arm_servo.set_angle(_angle, speed)
 
-    def set_arm_angle_async(self, angle: Union[str, int] = "RIGHT", speed=80, callback=None):
+    def set_arm_angle_async(
+        self, angle: Union[str, int] = "RIGHT", speed=80, callback=None
+    ):
         """
         异步设置机械臂角度(发命令不等应答), 供四轴并发使用。
 
@@ -248,7 +211,9 @@ class ArmController(ArmMotion):
         self._hand_angle_last = angle
         self.hand_servo.set_angle(angle, speed)
 
-    def set_hand_angle_async(self, angle: Union[str, int] = "UP", speed=80, callback=None):
+    def set_hand_angle_async(
+        self, angle: Union[str, int] = "UP", speed=80, callback=None
+    ):
         """
         异步设置机械臂手角度(发命令不等应答), 供四轴并发使用。
 

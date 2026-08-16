@@ -120,10 +120,33 @@ class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
         flag = 1 if state else 0
         self.servo_1.set_angle(self.servo_1_angle_list[flag])
 
-    def shooting(self):
-        self.shoot.set(1)
-        time.sleep(0.3)
-        self.shoot.set(0)
+    def shooting(self, pulse_seconds=0.1):
+        """击发一发子弹 (电磁式: 继电器 → 击发电磁铁)。
+
+        参数:
+            pulse_seconds: 击发线圈通电时长 (s)。
+                电磁枪通常 50~300ms, 默认 100ms (与 test_shoot.py 校准一致)。
+                过短 = 撞针冲不到位; 过长 = 线圈过热且不增加威力。
+        """
+        import logging as _log
+
+        self.beep()  # 击发前蜂鸣, 提示即将射击 (方便听觉对齐)
+        time.sleep(0.2)
+
+        t0 = time.time()
+        self.shoot.set(1)                    # 继电器吸合 → 电磁铁得电
+        time.sleep(max(pulse_seconds, 0.001))
+        self.shoot.set(0)                    # 继电器断开 → 复位
+        elapsed = time.time() - t0
+
+        time.sleep(0.2)
+        self.beep()  # 击发后蜂鸣, 提示完成
+        logger.info("shooting() done: pulse={:.0f}ms, actual={:.0f}ms".format(
+            pulse_seconds * 1000, elapsed * 1000
+        ))
+        print("[shooting] 脉冲 {:d}ms → 实际通电 {:.0f}ms".format(
+            int(pulse_seconds * 1000), elapsed * 1000
+        ))
 
     def car_pid_init(self, cfg):
         """
@@ -193,14 +216,27 @@ class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
         """
         关闭方法
 
-        关闭所有线程和资源，包括按键线程、摄像头和流处理器。
+        关闭顺序: 先停推流线程 (streamer), 再释放 VideoCapture。
+        避免后台线程在已释放的 cv2 对象上读帧, 触发 C++ 层 SIGABRT。
         """
         self._stop_flag = False
         self._end_flag = True
-        self.thread_key.join()
-        self.cap_front.close()
-        self.cap_side.close()
-        self.streamer.stop()
+        try:
+            self.thread_key.join(timeout=2.0)
+        except Exception:
+            pass
+        try:
+            self.streamer.stop()
+        except Exception:
+            pass
+        try:
+            self.cap_front.close()
+        except Exception:
+            pass
+        try:
+            self.cap_side.close()
+        except Exception:
+            pass
         # self.grap_cam.close()
 
 
