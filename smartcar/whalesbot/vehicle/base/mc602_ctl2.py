@@ -1,0 +1,642 @@
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+# 开始编码格式和运行环境选择
+
+import os
+from queue import Queue
+from serial.tools import list_ports
+from threading import Lock, Thread
+from multiprocessing import Process
+import time, math
+import struct
+import sys
+
+# 添加上本地目录
+sys.path.append(os.path.abspath(os.path.dirname(__file__)))
+# 添加上两层目录
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+from ...tools import logger
+
+# from pydownload import Scratch_Download_MC602P
+from smartcar.whalesbot.vehicle.base.serial_wrap import serial_wrap
+
+# 基础层(设备注册表/编解码/命令接口基类)已拆分到 mc602_devbase
+from .mc602_devbase import ctl602_dev_list, StructData, DevCmdInterface, DevListWrap
+
+serial_mc602 = serial_wrap
+# def set_serial_mc602(ser:SerialWrap):
+#     global serial_mc602
+#     serial_mc602 = ser
+
+
+class Buzzer_2(DevCmdInterface):
+    def __init__(self) -> None:
+        super().__init__(**ctl602_dev_list["beep"])
+
+    def rings(self, freq=262, duration=0.2):
+        # 音调hz 时间s
+        res = super().set(int(freq / 2), int(duration * 20))
+        return res
+
+
+class Motor_2(DevCmdInterface):
+    def __init__(self, port_id=None, reverse=1) -> None:
+        super().__init__(**ctl602_dev_list["motor"], port_id=port_id)
+        self.reverse = reverse
+
+    def set_dir(self, reverse):
+        self.reverse = reverse
+
+    def set_speed(self, *args):
+        args = list(args)
+        if len(args) == 2:
+            args[1] = int(args[1] * self.reverse)
+        else:
+            args[0] = int(args[0] * self.reverse)
+        # print(args)
+        return self.set(*args)
+
+    def set_speed_async(self, *args, callback=None):
+        """异步设置电机速度(发命令不等应答), 供高频/并发场景使用。"""
+        args = list(args)
+        if len(args) == 2:
+            args[1] = int(args[1] * self.reverse)
+        else:
+            args[0] = int(args[0] * self.reverse)
+        data_bytes = self.get_bytes(*args, mode=2, port_id=self.port_id)
+        self.ser.send_async(data_bytes, callback=callback, timeout=self.time_out)
+
+
+class AnalogInput_2(DevCmdInterface):
+    def __init__(self, port_id=None) -> None:
+        super().__init__(**ctl602_dev_list["sensor_analog"], port_id=port_id)
+
+
+# 红外传感器
+class Infrared_2(DevCmdInterface):
+    def __init__(self, port_id=None) -> None:
+        super().__init__(**ctl602_dev_list["sensor_infrared"], port_id=port_id)
+
+
+class Sensor_Analog2_2(DevCmdInterface):
+    def __init__(self, port_id=None):
+        super().__init__(**ctl602_dev_list["sensor_analog_a"], port_id=port_id)
+
+    def read(self):
+        return self.no_act()
+
+
+class BluetoothPad_2(DevCmdInterface):
+    def __init__(self) -> None:
+        # 调用父对象初始化
+        super().__init__(**ctl602_dev_list["bluetooth"])
+        self.throsheld_mid = [97, 97, 97, 97, 0]
+        self.stick_min = 40
+        self.stick_max = 160
+        self.divisor_min = [42, 42, 42, 42]
+        self.divisor_max = [56, 56, 56, 56]
+
+        self.margin = 6
+
+    def calibrate(self):
+        info_tmp = self.no_act()
+
+        # print(info_tmp)
+        for i in range(4):
+            if abs(info_tmp[i] - self.throsheld_mid[i]) < 10:
+                self.throsheld_mid[i] = info_tmp[i]
+        # logger.info(str(self.throsheld_mid))
+        for i in range(4):
+            self.divisor_max[i] = self.stick_max - self.throsheld_mid[i] - self.margin
+            self.divisor_min[i] = self.throsheld_mid[i] - self.stick_min - self.margin
+
+    def get_stick(self):
+        data = self.no_act()
+        # print(data)
+        re_data = []
+        tmp = 0.0
+        for i in range(4):
+            tmp = data[i] - self.throsheld_mid[i]
+            if abs(tmp) < self.margin:
+                tmp = 0
+            if tmp > 0:
+                tmp = (tmp - self.margin) / self.divisor_max[i]
+            elif tmp < 0:
+                tmp = (tmp + self.margin) / self.divisor_min[i]
+            tmp = min(1, max(-1, tmp))
+            re_data.append(tmp)
+        if data[4] == 49152:
+            self.calibrate()
+        re_data.append(data[4])
+        return re_data
+
+
+class BoardKey_2(DevCmdInterface):
+    def __init__(self) -> None:
+        super().__init__(**ctl602_dev_list["board_key"])
+
+    def no_act(self):
+        return super().no_act()[1:]
+
+
+class LedLight_2(DevCmdInterface):
+    def __init__(self, port_id=None) -> None:
+        super().__init__(**ctl602_dev_list["led_light"], port_id=port_id)
+
+    def set_light(self, led_id, r, g, b, port_id=None):
+        return super().set(led_id, r, g, b, port_id=port_id)
+
+    def set(self, *args, port_id=None):
+        return super().set(*args, port_id=port_id)
+
+
+class Key4Btn_2(AnalogInput_2):
+    btn_sta = []
+    state = []
+    limit = 0.05
+    stop_time = 0.05
+    bak_time = 0.0
+    long_time = 0.7
+    short_time = 0.4
+
+    def __init__(self, port_id=None) -> None:
+        super().__init__(port_id=port_id)
+        self.key_map = {3: 355, 1: 1366, 2: 2137, 4: 2988}
+        self.threshold = 0.1
+
+        for i in range(5):
+            # 按键状态  按下时间  最后一次按下的时间
+            self.btn_sta.append([False, 0.0, 0.0])
+
+    def key_map_btn(self, val):
+        r_key = 0
+        diff = 1
+        for key, value in self.key_map.items():
+            try:
+                tmp = abs(value - val) / value
+                if tmp < self.threshold and tmp < diff:
+                    r_key = key
+                    diff = tmp
+            except:
+                pass
+        return r_key
+
+    def get_key(self, port_id=None):
+        val = self.no_act(port_id=port_id)
+        # print(val)
+        return self.key_map_btn(val)
+
+    def get_key_async(self, callback=None, port_id=None, timeout=None):
+        """异步读取按键(发命令不等应答), 回包时回调按键号。
+        与 get_key 语义一致, 仅发送方式不同; 超时/失败回调 None。
+        """
+        data_bytes = self.get_bytes(port_id=port_id or self.port_id)
+
+        def on_reply(res):
+            if res is None:
+                if callback is not None:
+                    callback(None)
+                return
+            val = self.get_result(res)
+            if callback is not None:
+                callback(self.key_map_btn(val))
+
+        self.send_async(data_bytes, callback=on_reply, timeout=timeout)
+
+    def get_btn(self, port_id=None):
+        self.event()
+        time.sleep(0.01)
+        if len(self.state) > 0:
+            key_v, key_state = self.state[0][0], self.state[0][1]
+            del self.state[0]
+            return key_v + 1 + (key_state - 1) * 4
+        else:
+            return 0
+
+    def event(self):
+        self.bak_time = time.time()
+
+        index = 0
+        while len(self.state) > index:
+            for i in range(len(self.state)):
+                if self.bak_time - self.state[index][2] > self.limit:
+                    del self.state[index]
+                    continue
+            index = +1
+
+        button_num = self.get_key()
+        if button_num != 0:
+            index = button_num - 1
+        else:
+            index = 4
+
+        # 对应的按键按下，更新状态
+        if self.btn_sta[index][0]:
+            # 更新按键按下时间
+            self.btn_sta[index][1] += self.bak_time - self.btn_sta[index][2]
+            # 发送连续按下
+            if self.btn_sta[index][1] > self.long_time and index != 4:
+                self.state.append([index, 3, self.bak_time])
+        else:
+            self.btn_sta[index][0] = True
+            self.btn_sta[index][1] = 0
+        self.btn_sta[index][2] = self.bak_time
+        # print(self.btn_sta)
+        for i in range(4):
+            btn_state, time_dur, time_last = (
+                self.btn_sta[i][0],
+                self.btn_sta[i][1],
+                self.btn_sta[i][2],
+            )
+            # 如果有记录按下
+            if btn_state:
+                # 如果长时间没有更新
+                if self.bak_time - time_last > self.stop_time:
+                    if self.limit < time_dur < self.long_time:
+                        self.state.append([i, 1, time_last])
+                    elif time_dur > self.long_time:
+                        self.state.append([i, 2, time_last])
+                    self.btn_sta[i][0] = False
+                    self.btn_sta[i][1] = 0.0
+
+
+class NixieTube_2(DevCmdInterface):
+    def __init__(self, port_id=None) -> None:
+        super().__init__(**ctl602_dev_list["nixietube"], port_id=port_id)
+
+    def set_number(self, num, port_id=None):
+        return super().set(num, port_id=port_id)
+
+
+class Motor4_2(DevCmdInterface):
+    def __init__(self) -> None:
+        super().__init__(**ctl602_dev_list["motor4"])
+
+    def set_speed(self, speeds):
+        return super().set(*speeds)
+
+
+class Motors_2:
+    def __init__(self, ports, reverse=False) -> None:
+        self.moto_ports = ports
+        self.motors = []
+        self.encoders = []
+        self.args_none = []
+        self.reverse = reverse
+        for i in ports:
+            self.motors.append(Motor_2(i))
+            self.encoders.append(EncoderMotor_2(i))
+            self.args_none.append(0)
+        self.motors_wrap = DevListWrap(self.motors)
+        self.encoders_wrap = DevListWrap(self.encoders)
+        # 一帧驱动 4 路电机: 取代 4 路独立帧。4 帧连发挤占半双工串口总线,
+        # 导致部分电机收不到命令(表现为四轮不一起转/间歇丢帧)。
+        self.motor4 = Motor4_2()
+
+    # 设置速度
+    def set_speed(self, speeds):
+        if not self.reverse:
+            speeds = [-i for i in speeds]
+        # print(speeds)
+        return self.motor4.set_speed(speeds)
+
+    def get_speed(self):
+        speed = self.motors_wrap.get_all(self.args_none, mode=1)
+        if self.reverse:
+            speed = [-i for i in speed]
+        return speed
+
+    def get_encoder(self):
+        encoders = self.encoders_wrap.get_all(self.args_none, mode=1)
+        if isinstance(encoders[0], list):
+            encoders = encoders[0]  # 解开嵌套列表
+
+        if not self.reverse:
+            encoders = [-i for i in encoders]
+        return encoders
+
+    def get_encoder_async(self, callback=None, timeout=None):
+        """异步读取 4 路编码器(合并一帧, 不等应答立即返回)。
+        回包到达时回调 callback(encoders); 超时回调 None。
+        供里程计后台线程等需要高频读编码器、又不愿阻塞总线的场景。
+        """
+
+        def on_reply(res):
+            if res is None:
+                if callback is not None:
+                    callback(None)
+                return
+            # 防御: 偶发应答帧形状异常(解析错位/串帧)会混入 list 元素,
+            # 只保留数值再取负, 避免 "bad operand type for unary -: 'list'"。
+            if isinstance(res, (list, tuple)) and res and isinstance(res[0], (list, tuple)):
+                encoders = res[0]
+            else:
+                encoders = res
+            if not isinstance(encoders, (list, tuple)):
+                encoders = [encoders]
+            encoders = [v for v in encoders if isinstance(v, (int, float))]
+            if not self.reverse:
+                encoders = [-v for v in encoders]
+            if callback is not None:
+                callback(encoders)
+
+        self.encoders_wrap.get_all_async(
+            self.args_none, mode=1, callback=on_reply, timeout=timeout
+        )
+
+    def reset_encoder(self):
+        return self.encoders_wrap.get_all(self.args_none, mode=3)
+
+    def reset(self):
+        self.motors_wrap.get_all(self.args_none, mode=3)
+        return self.encoders_wrap.get_all(self.args_none, mode=3)
+
+
+class EncoderMotor_2(DevCmdInterface):
+    def __init__(self, port_id=None, reverse=-1) -> None:
+        self.reverse = reverse
+        super().__init__(**ctl602_dev_list["encoder"], port_id=port_id)
+
+    def get_encoder(self):
+        return self.get() * self.reverse
+
+
+class EncoderMotors4_2(DevCmdInterface):
+    def __init__(self) -> None:
+        super().__init__(**ctl602_dev_list["encoder4"])
+
+
+class ServoPwm_2(DevCmdInterface):
+    def __init__(self, port_id=None) -> None:
+        super().__init__(**ctl602_dev_list["servo_pwm"], port_id=port_id)
+
+    def set_angle(self, angle, speed=100):
+        self.set(int(speed), int(angle))
+
+    def set_angle_async(self, angle, speed=100, callback=None):
+        """异步设置 PWM 舵机角度(发命令不等应答), 供四轴并发使用。
+        与 set_angle 语义一致, 仅发送方式不同。
+        """
+        data_bytes = self.get_bytes(
+            int(speed), int(angle), mode=2, port_id=self.port_id
+        )
+        self.send_async(data_bytes, callback=callback)
+
+
+class ServoBus_2(DevCmdInterface):
+    def __init__(self, port_id=None) -> None:
+        super().__init__(**ctl602_dev_list["servo_bus"], port_id=port_id)
+        self.set_time_out(1)
+
+    def set_angle(self, angle, speed=100):
+        self.act_mode(1, int(speed), int(angle), mode=2)
+
+    def set_angle_async(self, angle, speed=100, callback=None):
+        """异步设置总线舵机角度(发命令不等应答), 供四轴并发使用。
+        与 set_angle 语义一致, 仅发送方式不同。
+        """
+        data_bytes = self.get_bytes(1, int(speed), int(angle), mode=2, port_id=self.port_id)
+        self.send_async(data_bytes, callback=callback)
+
+    def set_speed(self, speed):
+        self.act_mode(2, speed, mode=2)
+
+
+class ScreenShow_2(DevCmdInterface):
+    def __init__(self) -> None:
+        super().__init__(**ctl602_dev_list["led_show"])
+
+    def show(self, args):
+        if type(args) != str:
+            args = str(args)
+        int_values = [ord(arg) for arg in args]
+        int_values = tuple(int_values)
+        self.set(*int_values)
+
+
+class Battry_2(DevCmdInterface):
+    def __init__(self) -> None:
+        super().__init__(**ctl602_dev_list["power"])
+
+    def read(self):
+        res = super().get()
+        bat = float(res) / 1000
+        return bat
+
+
+class PoutD_2(DevCmdInterface):
+    def __init__(self, port_id=1) -> None:
+        super().__init__(**ctl602_dev_list["dout"], port_id=port_id)
+
+    def set(self, *args):
+        super().set(*args)
+
+
+class Stepper_2(DevCmdInterface):
+    def __init__(self, port_id=1) -> None:
+        super().__init__(**ctl602_dev_list["stepper"], port_id=port_id)
+
+    def set_pwm(self, freq):
+        super().set(int(freq))
+
+    def set_async(self, *args, callback=None):
+        """异步设置步进电机(发命令不等应答), 供高频/并发场景使用。"""
+        data_bytes = self.get_bytes(*args, mode=2, port_id=self.port_id)
+        self.ser.send_async(data_bytes, callback=callback, timeout=self.time_out)
+
+    def get_step(self):
+        val = super().get()
+        if val is None:
+            # 启动/瞬态读超时(last_data 尚未建立): 返回 0 避免崩溃,
+            # 机械臂复位流程会重新校准到限位, 0 起始值会被纠正。
+            return 0
+        return val[1]
+
+
+def beep_test():
+    beep = Buzzer_2()
+    for i in range(10):
+        beep.set(200, 10)
+        time.sleep(0.5)
+
+
+def motor_test():
+    motor = Motor_2(1)
+    for i in range(10):
+        motor.set(10)
+        time.sleep(1)
+        motor.set(0)
+        time.sleep(1)
+
+
+def motors_test():
+    motors = Motors_2([1, 4], True)
+    motors.reset_encoder()
+    for i in range(10):
+        motors.set_speed([10, 10])
+        time.sleep(0.1)
+        # print(motors.get_encoder())
+        # motors.set_speed([0, 0, 0])
+        # time.sleep(1)
+    motors.set_speed([0, 0])
+
+
+def motor4_test():
+    motor4 = Motor4_2()
+    while True:
+        for i in range(10):
+            motor4.set_speed([32, -16, -16, 30])
+            time.sleep(1)
+        motor4.set_speed([0, 0, 0, 0])
+        time.sleep(1)
+
+
+def encoders_test():
+    encoders = EncoderMotors4_2()
+    while True:
+        res = encoders.get()
+        print(res)
+        time.sleep(1)
+
+
+def sensor_anolog_test():
+    sensor4 = AnalogInput_2(1)
+    while 1:
+        print(sensor4.no_act())
+        time.sleep(1)
+
+
+def sensor_infrared_test():
+    infrared1 = Infrared_2(1)
+    while 1:
+        print(infrared1.no_act())
+        time.sleep(1)
+
+
+def board_key_test():
+    key = BoardKey_2()
+    while True:
+        res = key.no_act()
+        print(res)
+        time.sleep(0.1)
+
+
+def show_test():
+    show = ScreenShow_2()
+    show.show("my_test\n\nok")
+
+
+def nixie_tube_test():
+    nixie = NixieTube_2(1)
+    nixie.set_number(1111)
+
+
+def servo_bus_test():
+    servo_bus = ServoBus_2(2)
+    while 1:
+        servo_bus.set_angle(100, 60)
+        time.sleep(1)
+        servo_bus.set_angle(50, 60)
+        time.sleep(1)
+
+
+def servo_pwm_test():
+    servo_pwm = ServoPwm_2(2)
+    while 1:
+        servo_pwm.set_angle(60, 60)
+        time.sleep(1)
+        servo_pwm.set_angle(70, 60)
+        time.sleep(1)
+
+
+def led_light_test():
+    led_light = LedLight_2(1)
+    while 1:
+        led_light.set_light(1, 255, 255, 0)
+        time.sleep(1)
+        led_light.set_light(1, 0, 0, 0)
+        time.sleep(1)
+
+
+def key_test():
+    key = Key4Btn_2(7)
+    last_time = time.time()
+    while True:
+
+        res = key.get_btn()
+        # res = key.get_key()
+        # print(res)
+        if res != 0:
+            print(res)
+        now = time.time()
+        try:
+            fps = 1 / (now - last_time)
+        except ZeroDivisionError:
+            fps = 100
+        last_time = now
+        # time.sleep(0.)
+        # print("fps:", fps)
+        # print(res)
+        # print(res)
+
+
+def dev_list_test():
+
+    motor1 = Motor_2(1)
+    motor1.mode = 2
+    key_val = Key4Btn_2(4)
+    blue_pad = BluetoothPad_2()
+    sensor6 = AnalogInput_2(6)
+    # 四个同时控制
+    dev_list = [sensor6, motor1, blue_pad, key_val]
+    dev_wrap = DevListWrap(dev_list)
+    while True:
+        res = dev_wrap.get_all([0, 10, 0, 0])
+        logger.info(res)
+        time.sleep(1)
+
+
+def bluetooth_pad_test():
+    blue_pad = BluetoothPad_2()
+    while True:
+        res = blue_pad.get_stick()
+        print(res)
+        time.sleep(0.2)
+
+
+def dout_test():
+    dout = PoutD_2(1)
+    dout.set(0)
+    # time.sleep
+
+
+def stepper_test():
+    stepper = Stepper_2(2)
+    stepper.set(2000)
+    time.sleep(1)
+    stepper.set(0)
+
+
+if __name__ == "__main__":
+    serial_mc602.assert_dev("mc602")
+    beep = Buzzer_2()
+    beep.rings()
+    # bluetooth_pad_test()
+    # dev_list_test()
+    # board_key_test()
+    # led_light_test()
+    # beep_test()
+    # motor_test()
+    # motors_test()
+    # dout = Dout_2()
+    # stepper_test()
+    # dout_test()
+    # motor4_test()
+    # encoders_test()
+    # sensor_anolog_test()
+    # sensor_infrared_test()
+    # show_test()
+    # key_test()
+    # servo_bus_test()
+    # nixie_tube_test()
+    # servo_pwm_test()
