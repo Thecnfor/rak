@@ -27,10 +27,12 @@ MARKER_NOZZLE = (0.072, -0.331)
 # ── 姿态(角度直读, 不用字符串; x/y 米) — 需重标 ────────────────────
 #    Y 轴方向: 向下为正, 0=最底, -0.2=最顶(抬升为负值, 与 arm_motion 标定一致)
 #    大臂角度: LEFT=93 / MID=0 / RIGHT=-93; 末端角度: UP=-90 / MID=-37 / DOWN=0
-PICK_POSE = dict(x=0.0, y=-0.15, arm=-93, hand=0)
-PLACE_POSE = dict(x=0.0, y=-0.2, arm=93, hand=0)
-GRASP_Y, LIFT_Y = 0.0, -0.2          # 降至最底(0)吸 / 抬回(-0.2 最顶)
-PLACE_Y, PLACE_LIFT_Y = -0.02, -0.04  # 放苗微降 / 释放后抬离(防拖拽)
+#    尺寸→槽(重要): cylinder_3=最大筒→槽1(最近), cylinder_2=中筒→槽2,
+#    cylinder_1=最小筒→槽3(最远); 即槽列位置从近到远 1/2/3 对应 大/中/小。
+PICK_POSE = dict(x=-0.1, y=-0.15, arm=-93, hand=0)
+PLACE_POSE = dict(x=-0.2, y=-0.15, arm=93, hand=0)
+GRASP_Y, LIFT_Y = 0.0, -0.15         # 降至最底(0)吸 / 抬回(-0.15)
+PLACE_Y, PLACE_LIFT_Y = -0.02, -0.15 # 放苗微降 / 释放后一步抬到 -0.15
 
 MOVE_V = 0.1  # 底盘平移限速, 降漂移
 
