@@ -89,6 +89,11 @@ class ArmController(ArmMotion):
         self.hand_angle_list = hand["angle_list"]
         self.pump = PoutD(grap["port_pump"])
         self.valve = PoutD(grap["port_valve"])
+        # 初始化角度(新规范): 直接角度值, 不再用字符串查表。
+        # 大臂/末端初始化姿态由此决定, 改角度只改 arm_cfg.yaml 的 init_angle。
+        # 未配置时回退到 angle_list 的 LEFT/UP 档位, 保证旧 yaml 兼容。
+        self.arm_angle_init = hand.get("init_angle", self.hand_angle_list["LEFT"])
+        self.hand_angle_init = hand2.get("init_angle", self.hand_angle_list2["UP"])
 
     def grasp(self, value: bool):
         """
@@ -109,9 +114,9 @@ class ArmController(ArmMotion):
         while True:
             value = self.key.get_key()
             if value == 1:
-                self.y_speed(0.1)  # 向上
+                self.y_speed(0.1)  # 向下
             elif value == 3:
-                self.y_speed(-0.1)  # 向下
+                self.y_speed(-0.1)  # 向上
             elif value == 4:
                 self.x_speed(0.1)  # 向右
             elif value == 2:
@@ -126,15 +131,27 @@ class ArmController(ArmMotion):
         """
         # 注: X/Y 共享同一根串口总线, 并发复位会互相抢占导致命令丢失(电机不动)。
         # 因此这里改为串行复位: 先 Y 复位完成, 再 X 复位完成。
-        self.set_hand_angle("UP")
-        self.set_arm_angle("LEFT")
+        #
+        # ===== 底层规范(初始化姿势) =====
+        # 初始化姿态 = 大臂 arm_angle_init + 末端 hand_angle_init, 角度取自
+        # arm_cfg.yaml 的 hand_cfg.hand.init_angle / hand_cfg.hand2.init_angle。
+        # 改角度只动 yaml 这两个字段, 不用碰代码。
+        #
+        # 【新代码规范: 一律用角度, 不要再传字符串】
+        # 所有任务/脚本调用机械臂时请直接传角度数字:
+        #   car.arm.set_arm_pose(x, y, arm=<角度>, hand=<角度>)
+        #   car.arm.set_arm_angle(<角度>) / car.arm.set_hand_angle(<角度>)
+        # 不要再传 "LEFT"/"RIGHT"/"MID"/"UP"/"DOWN" 这类字符串。
+        # angle_list 表仅保留给旧调用兼容, 新代码禁止依赖, 后续将移除。
+        self.set_hand_angle(self.hand_angle_init)  # 末端翻到初始化角度
+        self.set_arm_angle(self.arm_angle_init)    # 大臂转到初始化角度
         print("开始重置竖直方向位置")
         try:
             self.reset_y()  # 0点: 下降撞限位, 该位置为 Y 轴 0 点(y_pose_now=0)
         finally:
-            self.move_y_position(-0.10)
+            self.move_y_position(-0.1)
         print("开始重置水平方向位置")
-        self.reset_x()  # 0点: 撞墙到头, 该位置为 X 轴 0 点(x_pose_now=0)
+        self.reset_x()  # 0点: 向右撞墙到头, 该位置为 X 轴 0 点(x_pose_now=0)
         print("重置位置完成")
 
     def switch_side(self, side):

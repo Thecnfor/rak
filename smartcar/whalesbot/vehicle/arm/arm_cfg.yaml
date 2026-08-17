@@ -1,11 +1,13 @@
 hand_cfg:
   hand:
+    init_angle: 93
     angle_list:
       LEFT: 93
       MID: 0
       RIGHT: -93
     port: 3
   hand2:
+    init_angle: -90
     angle_list:
       UP: -90
       MID: -37
