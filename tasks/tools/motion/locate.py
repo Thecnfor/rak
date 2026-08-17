@@ -345,9 +345,12 @@ class LocateMixin:
         """
         gain_cx, gain_cy = gains
         sign_cx, sign_cy = sign
-        end = time.time() + timeout
+        t0 = time.monotonic()  # 单调钟, 不受 NTP 校时跳变影响, 避免对齐提前/超时退出
+        end = t0 + timeout
         hits = 0
-        while time.time() < end:
+        seen_once = False
+        print(f"[伺服] 对齐 {label}: 期望点({cx},{cy}) deadzone={deadzone} 超时{timeout}s")
+        while time.monotonic() < end:
             # 读后台缓存筛目标(多个时取离期望点最近的)
             dets = [
                 d
@@ -359,6 +362,7 @@ class LocateMixin:
                 self.arm.x_speed(0)
                 time.sleep(0.02)
                 continue
+            seen_once = True
             dets.sort(key=lambda d: (d[4] - cx) ** 2 + (d[5] - cy) ** 2)
             px, py = dets[0][4], dets[0][5]
             e_cx, e_cy = cx - px, cy - py
@@ -366,6 +370,7 @@ class LocateMixin:
                 hits += 1
                 if hits >= settle:
                     self.arm.x_speed(0)
+                    print(f"[伺服] {label} 收敛: 用时 {time.monotonic() - t0:.2f}s")
                     return True
             else:
                 hits = 0
@@ -373,6 +378,8 @@ class LocateMixin:
                 self.arm.x_speed(sign_cy * gain_cy * e_cy)
             time.sleep(0.03)
         self.arm.x_speed(0)
+        print(f"[伺服] {label} 超时未收敛: 用时 {time.monotonic() - t0:.2f}s"
+              f" ({'全程未见目标' if not seen_once else '目标出现过但未进死区'})")
         return False
 
     # ====================================================================
@@ -415,7 +422,8 @@ class LocateMixin:
             bool: True=对齐到位(进死区 hold 帧), False=超时/急停
                 (目标丢失不再提前放弃, 会一直检索到超时为止)
         """
-        end = time.time() + timeout
+        t0 = time.monotonic()  # 单调钟, 不受 NTP 校时跳变影响, 避免对齐提前/超时退出
+        end = t0 + timeout
         in_band = 0
         lost_frames = 0
         last_vx = 0.0
@@ -424,10 +432,13 @@ class LocateMixin:
         last_axis = None
         kp_x, kp_y = kp
         sign_x, sign_y = sign
+        print(f"[底盘] 对齐 {label}: 期望点({cx},{cy}) deadband={deadband} 超时{timeout}s")
         while True:
-            if time.time() > end:
+            if time.monotonic() > end:
+                print(f"[底盘] {label} 超时未对齐: 用时 {time.monotonic() - t0:.2f}s")
                 break
             if getattr(self, "_stop_flag", False):
+                print(f"[底盘] {label} 急停中断: 用时 {time.monotonic() - t0:.2f}s")
                 break
             # 读后台缓存筛目标(多个时取离期望点最近的)
             dets = [
@@ -477,6 +488,7 @@ class LocateMixin:
                 in_band += 1
                 self.set_velocity(0.0, 0.0, 0.0)
                 if in_band >= hold:
+                    print(f"[底盘] {label} 收敛: 用时 {time.monotonic() - t0:.2f}s")
                     return True
             else:
                 in_band = 0
