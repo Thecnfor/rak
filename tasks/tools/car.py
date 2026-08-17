@@ -19,7 +19,7 @@ from smartcar.whalesbot.vehicle.base.controller_wrap import PoutD
 
 from .motion import MotionMixin
 from .perception import PerceptionMixin
-from . import cfg
+from . import cfg as tasks_cfg
 
 
 class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
@@ -161,11 +161,11 @@ class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
         self.lane_pid_y = PID(**cfg["lane_pid"]["cfg_pid_y"])
         # 转向 PID: 参数统一走 tasks/tools/cfg.py (实车标定), 覆盖 yaml 值
         self.lane_pid_angle = PID(
-            Kp=cfg.PID_ANGLE_KP,
-            Ki=cfg.PID_ANGLE_KI,
-            Kd=cfg.PID_ANGLE_KD,
+            Kp=tasks_cfg.PID_ANGLE_KP,
+            Ki=tasks_cfg.PID_ANGLE_KI,
+            Kd=tasks_cfg.PID_ANGLE_KD,
             setpoint=0,
-            output_limits=cfg.PID_ANGLE_LIMITS,
+            output_limits=tasks_cfg.PID_ANGLE_LIMITS,
         )
 
     def camera_init(self, cfg):

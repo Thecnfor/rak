@@ -1,29 +1,35 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""完整比赛流程入口：按比赛顺序一行行调用任务函数。"""
+"""完整比赛流程入口：一键编排（comp_mode）。
 
-from tasks import delivery, harvesting, ordering, seeding, shooting, sorting
-from tasks import target_detection, watering
+按键语义（由 Orchestrator 统一接管）:
+    4 = 一键启动 / 一轮结束后重来
+    1 = 跳过当前任务 (不标记完成, 下次重来仍补做)
+    3 = 急停退出
+
+路段巡线特调 / 任务点触发(advance 后停) / 任务后钉姿势(end_pose)
+的配置在 tasks/start/trigger_configs.py 的 TASK_TRIGGER 表里逐段填。
+"""
+
 from tasks.tools import create_car
+from tasks.orchestrator import Orchestrator
+from tasks.target_detection import run
 
 
 def main():
-    car = create_car(reset=True)  # 初始化（含机械臂与里程计复位）
+    car = create_car(reset=True, comp_mode=True)  # 初始化(含机械臂与里程计复位) + 比赛模式按键接管
+    orch = Orchestrator(car)
     try:
-        # 完整比赛流程（按需解开注释启用）
+        # 一键比赛流程: 触发后自动 run(car), 等按键 4 启动, 一轮结束可重来
         while True:
+            animal_list = run(car)
+            print(f"animal_list = {animal_list}")
             pass
-        seeding.run(car)                                  # 播种任务
-        # animal_list = target_detection.run(car)           # 识别虫害
-        # watering.run(car)                                 # 灌溉任务
-        # shooting.run(car, animal_list)                    # 射击除害
-        # harvesting.run(car)                               # 作物收集
-        # sorting.run(car)                                  # 作物储存
-        # order_list = ordering.run(car)                    # 订单获取
-        # delivery.run(car, order_list)                     # 订单配送
+        orch.run_all(auto_run_task=True, wait_start=True, allow_restart=True)
     finally:
         car.stop()
         car.close()
+
 
 if __name__ == "__main__":
     main()

@@ -2,6 +2,8 @@
 """基础移动原语(MoveMixin): 底层运动控制与坐标计算(从 motion.py 拆分而来)。"""
 import math
 
+from smartcar import logger
+
 # 方法默认参数用到的停止标志默认值(与 MyCar.STOP_PARAM 类属性保持一致)
 STOP_PARAM = True
 
@@ -69,3 +71,36 @@ class MoveMixin:
         return math.sqrt(
             (pos_dst[0] - pos_src[0]) ** 2 + (pos_dst[1] - pos_src[1]) ** 2
         )
+
+    def go_to_pose(
+        self, target_position, max_velocities=None, tolerance=None, timeout=30.0
+    ):
+        """绝对位姿 [x,y,theta] 闭环, theta 已归一化最短路径; 返回是否收敛.
+
+        任务结束后"钉姿势"用: 无论车停在哪、机械臂什么姿势, 都闭环到预定
+        绝对位姿, 让下一个任务从已知姿势开始。theta 走最短转向(底层
+        move_to_position 已做 ±π 归一化)。
+
+        参数:
+            target_position: 目标位姿 [x, y, theta] (当前里程计坐标系, 弧度)
+            max_velocities: 速度上限 [x, y, 角速度], 默认 [0.2, 0.2, π/3]
+            tolerance:      收敛阈值 [x, y, 角度], 默认 [0.004, 0.004, 0.02]
+            timeout:        超时秒, 超时返回 False
+
+        返回:
+            bool: 是否成功闭环到位姿
+        """
+        if max_velocities is None:
+            max_velocities = [0.2, 0.2, math.pi / 3]
+        if tolerance is None:
+            tolerance = [0.004, 0.004, 0.02]
+        if getattr(self, "_stop_flag", False):
+            return False
+        try:
+            self.move_to_position(
+                target_position, None, max_velocities, tolerance, timeout
+            )
+        except Exception as e:
+            logger.warning(f"go_to_pose 异常: {e}")
+            return False
+        return True

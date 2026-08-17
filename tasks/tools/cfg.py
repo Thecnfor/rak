@@ -16,10 +16,10 @@ from __future__ import annotations
 STEER_SIGN = 1.0
 
 # 转弯通道 PID(da -> 角速度)
-PID_ANGLE_KP = 3 * STEER_SIGN  # 转向强度: 弯道转不过来就加大, 直道蛇形摆动就减小
+PID_ANGLE_KP = 6.5 * STEER_SIGN  # 转向强度: 弯道转不过来就加大, 直道蛇形摆动就减小
 PID_ANGLE_KI = 0.0  # 角通道积分: 一般不动
 PID_ANGLE_KD = 0.0  # 阻尼: 抑制摆动; 摆动大->加大, 转向迟钝->减小
-_a = 2.5
+_a = 4.5
 PID_ANGLE_LIMITS = (-_a, _a)  # 角速度限幅 (rad/s)
 
 # ---------------- 转向死区 (da 进 PID 前) ----------------
@@ -41,14 +41,14 @@ def lane_deadzone(da):
 # |steer| 低于此值不叠加(防抖)
 CORR_THRESHOLD = 0.02
 # steer 1.0 对应的角速度贡献 (减号 = 实车标定回正方向)
-CORR_WEIGHT = 0.2
+CORR_WEIGHT = 0.3
 
 # ---------------- 巡线滤波 (前视推理线程侧) ----------------
 # 一阶低通 EMA 平滑系数 0~1: 越大越跟手(含噪声), 越小越平滑(延迟大)
-LANE_EMA = 0.8
+LANE_EMA = 0.9
 # 单次推理异常超过该秒数则按"无误差直行"处理; 丢帧时更稳
-LANE_TIMEOUT = 0.5
+LANE_TIMEOUT = 0.1
 
 # ---------------- 前进速度 ----------------
 # 前进速度独立恒定(不随误差降速), 与转弯速度互不耦合
-V_FORWARD = 0.3  # 前进速度 (m/s)
+V_FORWARD = 0.6  # 默认前进速度 (m/s): lane_base(speed) 未显式传入时兜底; 触发配置的 speed 会覆盖它

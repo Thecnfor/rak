@@ -132,7 +132,7 @@ class ArmController(ArmMotion):
         try:
             self.reset_y()  # 0点: 下降撞限位, 该位置为 Y 轴 0 点(y_pose_now=0)
         finally:
-            self.move_y_position(-0.05)
+            self.move_y_position(-0.10)
         print("开始重置水平方向位置")
         self.reset_x()  # 0点: 撞墙到头, 该位置为 X 轴 0 点(x_pose_now=0)
         print("重置位置完成")

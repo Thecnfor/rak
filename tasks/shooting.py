@@ -25,7 +25,7 @@ def run(car, animal_list=None):  # noqa: E741
 
     # 射击任务
     car.arm.set_arm_pose(arm="LEFT", hand="UP")
-    car.arm.set_arm_pose(x=0.3, y=0.02)
+    car.arm.set_arm_pose(x=-0.15, y=-0.15)
 
     car.lane_dis_offset(speed=0.3, dis_hold=3.0)
     car.move_for([-0.2, 0, 0])

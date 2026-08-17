@@ -1,10 +1,9 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
-"""任务1: 自动移苗(播种) — 三列育苗筒 -> 种植槽. 逻辑迁移自 4_car task1_seeding.
+"""任务1: 自动移苗(播种) — 三列育苗筒 -> 种植槽. 
 
-与 4_car 相比只补了一个精简版机械臂视觉伺服(_servo), 其余全部映射到现有 SDK。
-⚠️ 所有数值/姿态/setpoint 是 4_car 的标定占位, 必须按本车重标定。
-   本车 y 轴约定与 4_car 相反: y 正 = 抬升, y=0 = 最低。
+只补了一个精简版机械臂视觉伺服(_servo), 其余全部映射到现有 SDK。
+参数未测试以及运动逻辑和方向需要测试
 """
 import math
 import time
@@ -25,7 +24,7 @@ MARKER = "cylinder_set"
 MARKER_NOZZLE = (0.072, -0.331)
 
 # ── 姿态(arm: LEFT/MID/RIGHT; x/y 米, y 正=抬升) — 需重标 ──────────
-PICK_POSE = dict(x=0.0, y=-0.05, arm="RIGHT", hand="DOWN")
+PICK_POSE = dict(x=0.0, y=0.15, arm="RIGHT", hand="DOWN")
 PLACE_POSE = dict(x=0.0, y=-0.2, arm="LEFT", hand="DOWN")
 GRASP_Y, LIFT_Y = 0.0, -0.2          # 降到底吸 / 抬回
 PLACE_Y, PLACE_LIFT_Y = -0.02, -0.04  # 放苗降 / 释放后抬离(防拖拽)
@@ -112,6 +111,7 @@ def run(car):
         _chassis(car, SOURCE[col], pos)
         car.arm.set_arm_pose(PICK_POSE["x"], PICK_POSE["y"],
                              PICK_POSE["arm"], PICK_POSE["hand"])
+        print(f"已经移动到了PICK_POSE")
         # 扫描本列 cylinder; 没有就用剩余 label 兜底
         label = next((l for l in CYLINDERS if _find(car, l)), None)
         if label is None:

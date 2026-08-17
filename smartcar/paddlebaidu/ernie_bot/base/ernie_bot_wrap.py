@@ -345,18 +345,25 @@ class ErnieBotWrap():
 			}
 		}
 
-		response = self.client.chat.completions.create(
-			# model="ernie-4.5-8k-preview",
-			model=self.image_model,
-			messages=messages,
-			top_p=0.1,
+		for attempt in range(3):
+			response = self.client.chat.completions.create(
+				model=self.image_model,
+				messages=messages,
+				top_p=0.1,
 			)
-		content = response.choices[0].message.content
-		data = json.loads(content)
-		analysis = data["analysis"]
-		result = data["result"]
+			content = response.choices[0].message.content
+			try:
+				# 剥掉可能的 ```json 围栏，再取第一个 { 到最后一个 } 之间
+				content = content[content.find("{"): content.rfind("}") + 1]
+				data = json.loads(content)
+				analysis = data["analysis"]
+				result = data["result"]
+				return result, analysis
+			except (json.JSONDecodeError, KeyError) as e:
+				print(f"第{attempt + 1}次解析失败: {e}\n原始返回: {content}")
 
-		return result,analysis
+		return None, None  # 三次都失败，返回 None 让上层任务决定怎么处理
+
 
 	def get_res(self, str_input, record=False, request_timeout=5):
 		if len(str_input)<1:

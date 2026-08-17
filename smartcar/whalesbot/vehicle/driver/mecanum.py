@@ -596,7 +596,6 @@ class MecanumDriver:
 
         tolerance = np.array(tolerance)
 
-        self.pid_yaw.setpoint = target_position[2]
         self.pid_yaw.output_limits = (-max_velocities[2], max_velocities[2])
         consecutive_within_threshold = 0
         start_time = time.time()
@@ -616,7 +615,15 @@ class MecanumDriver:
             with self._lock:
                 current_position = self.chassis.odometry.position.copy()
 
-            error = np.abs(current_position - target_position)
+            # 航向 ±π 归一化: 取与当前角最接近的等价目标角, 走最短转向
+            target_theta = target_position[2] + 2.0 * math.pi * round(
+                (current_position[2] - target_position[2]) / (2.0 * math.pi)
+            )
+            effective_target = np.array(
+                [target_position[0], target_position[1], target_theta]
+            )
+
+            error = np.abs(current_position - effective_target)
             error_within_threshold = error < tolerance
 
             if error_within_threshold.all():
@@ -628,6 +635,7 @@ class MecanumDriver:
 
             velocity_x_pid = self.pid_x(current_position[0])
             velocity_y_pid = self.pid_y(current_position[1])
+            self.pid_yaw.setpoint = effective_target[2]  # 每轮用归一化后的目标角
             angular_velocity_pid = self.pid_yaw(current_position[2])
             # 世界坐标速度转换车子坐标速度
             velocity_output = self.world_to_car_velocity(

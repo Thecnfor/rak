@@ -92,8 +92,18 @@ class Cruiser:
         self.host._skipped = False
         self.host._emergency = False
 
+        # 前进速度: 取 lane.v_forward (每任务独立), 缺省回落公共默认 cfg.speed
+        seg = cfg.get("lane") or {}
+        forward_speed = float(seg.get("v_forward", cfg["speed"]))
+        advance = float(cfg.get("advance", 0.0))
+        # advance 状态: 触发确认时记录里程计/原因, 继续前进 advance 米再停
+        adv_odom: Optional[float] = None  # 触发确认时的里程计
+        adv_reason: str = ""
+        adv_label: Optional[str] = None
+
         # 停止判定: 每 tick 都跑 (lane_base 的 end_fuction 会高频调用)
         def _should_stop() -> Tuple[bool, str, Optional[str]]:
+            nonlocal adv_odom, adv_reason, adv_label
             # 1) 急停 (用户按 3 或 MyCar._stop_flag 被置位)
             if getattr(car, "_stop_flag", False) or self.host._emergency:
                 return True, "emergency", None
@@ -103,16 +113,22 @@ class Cruiser:
             # 3) start_dist 窗口: 没走到就不检查触发
             cur_dist = float(car.get_distance())
             rel = cur_dist - start_distance
-            if rel < float(cfg["start_dist"]):
-                pass
-            else:
+            if rel >= float(cfg["start_dist"]):
                 if trigger is not None:  # 视觉
                     trigger.check(car)
-                    if trigger.confirmed():
-                        return True, "vision", trigger.confirmed_label()
+                    if trigger.confirmed() and adv_odom is None:
+                        adv_odom = cur_dist
+                        adv_reason = "vision"
+                        adv_label = trigger.confirmed_label()
                 elif odometer_trigger is not None:  # 里程计
-                    if odometer_trigger.check(cur_dist):
-                        return True, "odometer", None
+                    if odometer_trigger.check(cur_dist) and adv_odom is None:
+                        adv_odom = cur_dist
+                        adv_reason = "odometer"
+                        adv_label = None
+                # 触发已确认: advance>0 则继续前进到 offset 达标才停; =0 立即停
+                if adv_odom is not None:
+                    if advance <= 0 or cur_dist - adv_odom >= advance:
+                        return True, adv_reason, adv_label
             # 4) 兜底: 最大行驶距离
             if float(cfg["max_run"]) > 0 and rel >= float(cfg["max_run"]):
                 logger.warning(
@@ -137,12 +153,22 @@ class Cruiser:
         )
         key_thread.start()
 
+        # 应用路段特调参数 -> 巡线 -> finally 还原(异常/急停也还原)
         try:
-            self._drive_forward(cfg, _should_stop)
+            car.lane_apply_params(seg)
+        except Exception as e:
+            logger.warning(f"[cruise:{task_name}] lane_apply_params 异常: {e}")
+
+        try:
+            self._drive_forward(cfg, forward_speed, _should_stop)
         finally:
             cruise_stop.set()
             try:
                 key_thread.join(timeout=0.5)
+            except Exception:
+                pass
+            try:
+                car.lane_restore_params()
             except Exception:
                 pass
 
@@ -171,10 +197,14 @@ class Cruiser:
     def _drive_forward(
         self,
         cfg: Dict,
+        forward_speed: float,
         stop_check: Callable[[], Tuple[bool, str, Optional[str]]],
     ) -> None:
-        """巡线前进: 优先用 lane_base 闭环; 异常退化为开环."""
-        speed = float(cfg["speed"])
+        """巡线前进: 优先用 lane_base 闭环; 异常退化为开环.
+
+        forward_speed: 本次巡线的权威前进速度 (取路段 lane.v_forward, 缺省 cfg.speed)。
+        """
+        speed = float(forward_speed)
         use_stop = bool(cfg.get("use_stop", True))
         car = self.host.car
         try:

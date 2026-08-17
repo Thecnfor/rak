@@ -81,6 +81,27 @@ class TaskRunner:
         self.cruiser = cruiser
         self.hooks = hooks
 
+    # ---------- 任务结束钉姿势 ----------
+    def _pin_end_pose(self, task_name: str) -> None:
+        """任务 run() 结束后, 若配置了 end_pose 则 go_to_pose 到该绝对位姿.
+
+        放在 after 钩子之前调用 (sorting 的清里程计钩子发生在钉姿势之后)。
+        end_pose 语义: 当前里程计坐标系下的 [x, y, theta] 弧度。
+        """
+        cfg = self.cfg_manager.resolve(task_name)
+        end_pose = cfg.get("end_pose")
+        if not end_pose:
+            return
+        try:
+            target = [float(end_pose[0]), float(end_pose[1]), float(end_pose[2])]
+            ok = self.host.car.go_to_pose(target)
+            print(
+                f"[run_all] {task_name} 钉姿势 -> {[f'{v:.3f}' for v in target]} "
+                f"{'OK' if ok else '超时/失败'}"
+            )
+        except Exception as e:
+            print(f"[run_all] {task_name} 钉姿势异常: {e}")
+
     # ---------- 单步 ----------
     def run_next_task(
         self,
@@ -131,10 +152,15 @@ class TaskRunner:
                     print(f"[run_all] {task_name} 执行期间被跳过 (不标记完成)")
                     return True, task_name, cruise_res, task_return
 
-        # 4) after 钩子 (sorting 默认清零里程计, 为 ordering 做起点)
+        # 4) 任务结束钉姿势: 无论车停在哪个姿势, 都 go_to_pose 到配置的
+        #    绝对 end_pose, 让下一个任务从已知姿势开始 (放在 after 钩子前,
+        #    确保 sorting 的清里程计钩子发生在钉姿势之后)
+        self._pin_end_pose(task_name)
+
+        # 5) after 钩子 (sorting 默认清零里程计, 为 ordering 做起点)
         self.hooks.call_after(self.host.car, task_name)
 
-        # 5) 标记完成 (schedule() 下次就跳过它)
+        # 6) 标记完成 (schedule() 下次就跳过它)
         self.host.mark_done(task_name)
         return True, task_name, cruise_res, task_return
 

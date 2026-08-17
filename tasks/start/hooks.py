@@ -9,6 +9,8 @@
 """
 from typing import Callable, Dict, Optional
 
+import time
+
 from smartcar.whalesbot.tools import logger
 
 
@@ -16,9 +18,16 @@ from smartcar.whalesbot.tools import logger
 # 默认钩子
 # =========================================================================
 def default_before_any(car, task_name: str) -> None:
-    """所有任务触发后、执行 run() 前的统一提示: beep + 日志."""
-    logger.info(f"触发任务点: {task_name}")
+    """所有任务触发后、执行 run() 前的统一提示: 停车 3s + beep 两下 + 日志.
+
+    任务点触发(巡线命中)后编排器会调用本钩子: 车已停在触发点, 这里
+    停 3 秒并蜂鸣两下, 作为"到达任务点"的人工提示, 然后才执行 run()。
+    """
+    logger.info(f"触发任务点: {task_name} → 停车 3s + beep")
     try:
+        car.stop()
+        time.sleep(3)
+        car.beep()
         car.beep()
     except Exception:
         pass

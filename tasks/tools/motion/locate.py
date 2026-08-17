@@ -188,7 +188,7 @@ class LocateMixin:
         delta_x=0.0,
         delta_y: Union[float, None] = 0.0,
         label=None,
-        time_out=2.0,
+        time_out=4.0,
         sort_pos=(0, 0),
         num=0,
     ):
@@ -212,13 +212,14 @@ class LocateMixin:
         if self.arm.side == "RIGHT":
             kp_y = -0.2
             kp_x = -0.25
-            ki_x = -0.05
+            ki_x = 0.03
         else:
             kp_y = 0.2
-            kp_x = 0.25
-            ki_x = 0.05
+            kp_x = 0.16
+            ki_x = 0.0
 
         pid_x = PID(kp_x, ki_x)
+        pid_x.output_limits = (-0.15, 0.15)
         pid_x.setpoint = delta_x
         while True:
             if self._stop_flag:
@@ -234,8 +235,12 @@ class LocateMixin:
             if len(dets) > num:
                 det = dets[num]
                 dx, dy = det[4:6]
-                # print(f"dx:{dx} dy:{dy}")
-                out_x = -pid_x(dx)  # type: ignore
+                err_x = delta_x - dx
+                if abs(err_x) < 0.015:
+                    out_x = 0.0          # 足够近就不动, 让 CountRecord 确认稳定
+                else:
+                    out_x = -pid_x(dx)   # type: ignore
+
                 if delta_y is None:
                     out_y = 0
                 else:
@@ -254,7 +259,7 @@ class LocateMixin:
                     # logger.info(f"location{self.get_odometry()} ok, arm_pose{self.arm.x_pose_now}")
                     self.set_velocity(0, 0, 0)
                     self.arm.x_speed(0)
-                    # return det[0],det[2]
+                    return det[0], det[2]
             else:
                 x_count(False)
                 y_count(False)

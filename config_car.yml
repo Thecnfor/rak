@@ -157,4 +157,4 @@ infer_cfg:
 # 文心一言 Access Token 配置
 # 获取地址：https://aistudio.baidu.com/account/accessToken
 # ============================================================
-ernie_access_token: REPLACE_YOUR_ACCESS_TOKEN_HERE
+ernie_access_token: 49af7cbdb60770ef24d713a4d551a0f096bd75b8

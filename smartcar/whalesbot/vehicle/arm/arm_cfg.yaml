@@ -30,8 +30,8 @@ horiz_cfg:
     - -0.2
     - 0.2
   threshold:
+  - -0.315
   - 0
-  - 0.315
 pos_cfg:
   side: LEFT
 vert_cfg:
@@ -43,11 +43,11 @@ vert_cfg:
   pid:
     Kp: 3
     Ki: 0
-    Kd: 0.1
+    Kd: 0
     setpoint: 0
     output_limits:
     - -0.6
     - 0.6
   threshold:
+  - -0.2
   - 0
-  - 0.2
