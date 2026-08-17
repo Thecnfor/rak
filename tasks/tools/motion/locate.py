@@ -201,7 +201,7 @@ class LocateMixin:
             包含目标检测信息的列表，格式为 [cls_id, obj_id,label, score, x_c, y_c, w, h]
         """
         time_stop = time.time() + time_out
-        x_count = CountRecord(3)
+        x_count = CountRecord(2)
         y_count = CountRecord(3)
 
         # pid_x.output_limits((-0.7, 0.7))
@@ -215,7 +215,7 @@ class LocateMixin:
             ki_x = 0.03
         else:
             kp_y = 0.2
-            kp_x = 0.16
+            kp_x = 0.08
             ki_x = 0.0
 
         pid_x = PID(kp_x, ki_x)
@@ -231,6 +231,9 @@ class LocateMixin:
 
             if label is not None:
                 dets = [item for item in dets if item[2] == label]
+            
+            if getattr(self, "_align_forward", False):
+                dets = [d for d in dets if d[4] >= delta_x]
 
             if len(dets) > num:
                 det = dets[num]
@@ -246,7 +249,7 @@ class LocateMixin:
                 else:
                     out_y = kp_y * (dy - delta_y)
 
-                flag_x = x_count(abs(dx) < 0.04)
+                flag_x = x_count(abs(dx) < 0.06)
                 flag_y = y_count(abs(dy) < 0.02)
                 if delta_y is None:
                     flag_y = True
@@ -259,6 +262,7 @@ class LocateMixin:
                     # logger.info(f"location{self.get_odometry()} ok, arm_pose{self.arm.x_pose_now}")
                     self.set_velocity(0, 0, 0)
                     self.arm.x_speed(0)
+                    self._align_forward = True 
                     return det[0], det[2]
             else:
                 x_count(False)
