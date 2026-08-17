@@ -82,7 +82,7 @@ def _pre_align(car):
     # ① 底盘对齐姿态: 滑轨放外侧, 视野敞开便于检测槽标记
     car.arm.set_arm_pose(CHASSIS_ALIGN_X, PLACE_POSE["y"],
                          PLACE_POSE["arm"], PLACE_POSE["hand"])
-    ok_chassis = car.chassis_align(MARKER)  # 车动, 槽标记居中
+    ok_chassis = car.chassis_align(MARKER, timeout=10.0)  # 车动, 槽标记居中; 10s 内一直检索, 不提前放弃
     print(f"底盘对齐槽标记: {'成功' if ok_chassis else '超时/未对齐, 继续预对位'}")
     # ② 机械臂预对位: 车已粗对准, 把滑轨摆回 -0.2 基准再让臂精对位
     car.arm.set_arm_pose(PLACE_POSE["x"], PLACE_POSE["y"],
