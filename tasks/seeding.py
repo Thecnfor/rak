@@ -56,11 +56,34 @@ def _pick(car, label):
 
 
 def _place(car):
-    # 视觉伺服已提为通用方法 car.arm_servo_align; 未收敛也放, 完赛优先
-    car.arm_servo_align(MARKER, *MARKER_NOZZLE, **PLACE_SERVO)
+    """按调用方已到位的放苗姿势直接落下: 微降放苗 → 释放 → 一步抬离.
+
+    前面 set_arm_pose(预对位记住的姿势)已把臂放到槽正上方, 这里不再现场伺服。
+    """
     car.arm.move_y_position(PLACE_Y)
     car.arm.grasp(False)
     car.arm.move_y_position(PLACE_LIFT_Y)
+
+
+def _pre_align(car):
+    """第1列预对位: 摆放苗姿势并伺服对齐槽标记, 记住此刻 4 轴放苗姿态.
+
+    放苗的横向/大臂姿势全程通用(槽的横向位置不随筒尺寸变), 所以只做一次,
+    后两列放苗直接复用。返回 (x, y, arm, hand) 四自由度姿态。
+    超时(4s 未对准)用 PLACE_POSE 默认值兜底, 不阻塞(完赛优先)。
+    """
+    car.arm.set_arm_pose(PLACE_POSE["x"], PLACE_POSE["y"],
+                         PLACE_POSE["arm"], PLACE_POSE["hand"])
+    ok = car.arm_servo_align(MARKER, *MARKER_NOZZLE, **PLACE_SERVO)
+    if ok:
+        # 伺服后臂已微调到槽正上方, 记下此刻 4 轴状态作为放苗姿势
+        pose = (car.arm.x_get_position(), car.arm.y_get_position(),
+                car.arm.angle, car.arm.hand_angle)
+        print(f"预对位成功, 记住放苗姿势 x={pose[0]:.3f} y={pose[1]:.3f} "
+              f"arm={pose[2]:.1f} hand={pose[3]:.1f}")
+        return pose
+    print("预对位超时, 放苗用默认姿势")
+    return (PLACE_POSE["x"], PLACE_POSE["y"], PLACE_POSE["arm"], PLACE_POSE["hand"])
 
 
 def _chassis(car, target, pos):
@@ -76,8 +99,13 @@ def run(car):
     pos = [0.0]           # 底盘纵向自记账
     seen = None
     completed = []
+    place_pose = None     # 第1列预对位记住的放苗姿态, 后两列复用
     for col in (1, 2, 3):
         _chassis(car, SOURCE[col], pos)
+        # 第1列: 先预对位槽标记, 记住放苗姿势(横向/大臂姿势全程通用, 只需一次)
+        if place_pose is None:
+            place_pose = _pre_align(car)
+        # 摆抓取姿势
         car.arm.set_arm_pose(PICK_POSE["x"], PICK_POSE["y"],
                              PICK_POSE["arm"], PICK_POSE["hand"])
         print(f"已经移动到了PICK_POSE")
@@ -94,9 +122,9 @@ def run(car):
             label = "cylinder_3" if seen == "cylinder_1" else "cylinder_1"
         _pick(car, label)
         completed.append(label)
-        # 放苗: 底盘到槽列 + 切放苗姿态
+        # 放苗: 底盘到槽列 + 直接用第1列记住的放苗姿势(不再现场伺服)
         _chassis(car, SLOT[TARGET_SLOT[label]], pos)
-        car.arm.set_arm_pose(PLACE_POSE["x"], PLACE_POSE["y"],
-                             PLACE_POSE["arm"], PLACE_POSE["hand"])
+        px, py, parm, phand = place_pose
+        car.arm.set_arm_pose(px, py, parm, phand)
         _place(car)
     return completed
