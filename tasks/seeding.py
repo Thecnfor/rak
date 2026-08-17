@@ -30,7 +30,8 @@ MARKER_NOZZLE = (0.072, -0.331)
 #    尺寸→槽(重要): cylinder_3=最大筒→槽1(最近), cylinder_2=中筒→槽2,
 #    cylinder_1=最小筒→槽3(最远); 即槽列位置从近到远 1/2/3 对应 大/中/小。
 PICK_POSE = dict(x=-0.1, y=-0.15, arm=-93, hand=0)
-PLACE_POSE = dict(x=-0.2, y=-0.15, arm=93, hand=0)
+PLACE_POSE = dict(x=-0.2, y=-0.15, arm=93, hand=0)  # 机械臂预对位基准/放苗兜底
+CHASSIS_ALIGN_X = -0.28  # 仅底盘对齐阶段: 滑轨放更外侧, 便于把槽标拉进画面中心
 GRASP_Y, LIFT_Y = 0.0, -0.15         # 降至最底(0)吸 / 抬回(-0.15)
 PLACE_Y, PLACE_LIFT_Y = -0.02, -0.15 # 放苗微降 / 释放后一步抬到 -0.15
 
@@ -38,8 +39,8 @@ MOVE_V = 0.1  # 底盘平移限速, 降漂移
 
 
 # ── 伺服参数(抓/放分开, 来自 4_car task_config.yml) ───────────────────
-PICK_SERVO = dict(gains=(0.5, 0.05), sign=(1.0, -1.0), deadzone=0.05)
-PLACE_SERVO = dict(gains=(0.3, 0.2), sign=(1.0, 1.0), deadzone=0.06)
+PICK_SERVO = dict(gains=(0.2, 0.15), sign=(1.0, -1.0), deadzone=0.05)
+PLACE_SERVO = dict(gains=(0.2, 0.2), sign=(1.0, 1.0), deadzone=0.06)
 
 
 def _has(car, label, max_age=0.3):
@@ -68,10 +69,21 @@ def _place(car):
 def _pre_align(car):
     """第1列预对位: 摆放苗姿势并伺服对齐槽标记, 记住此刻 4 轴放苗姿态.
 
+    两段对齐(顺序固定, 后段不依赖前段成功, 都完赛优先):
+      1) 底盘对齐: 滑轨放 CHASSIS_ALIGN_X(-0.28) 外侧姿态, 车前后/左右横移,
+         把 cylinder_set 槽标记移到画面中心(失败/超时也继续, 只为粗对准)
+      2) 机械臂对齐: 把滑轨摆回 PLACE_POSE(-0.2) 基准, 大臂+滑轨把吸嘴
+         精确送到槽标记正上方(arm_servo_align)
     放苗的横向/大臂姿势全程通用(槽的横向位置不随筒尺寸变), 所以只做一次,
     后两列放苗直接复用。返回 (x, y, arm, hand) 四自由度姿态。
-    超时(4s 未对准)用 PLACE_POSE 默认值兜底, 不阻塞(完赛优先)。
+    预对位超时用 PLACE_POSE 默认值兜底, 不阻塞(完赛优先)。
     """
+    # ① 底盘对齐姿态: 滑轨放外侧, 视野敞开便于检测槽标记
+    car.arm.set_arm_pose(CHASSIS_ALIGN_X, PLACE_POSE["y"],
+                         PLACE_POSE["arm"], PLACE_POSE["hand"])
+    ok_chassis = car.chassis_align(MARKER)  # 车动, 槽标记居中
+    print(f"底盘对齐槽标记: {'成功' if ok_chassis else '超时/未对齐, 继续预对位'}")
+    # ② 机械臂预对位: 车已粗对准, 把滑轨摆回 -0.2 基准再让臂精对位
     car.arm.set_arm_pose(PLACE_POSE["x"], PLACE_POSE["y"],
                          PLACE_POSE["arm"], PLACE_POSE["hand"])
     ok = car.arm_servo_align(MARKER, *MARKER_NOZZLE, **PLACE_SERVO)

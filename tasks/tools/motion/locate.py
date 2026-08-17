@@ -321,7 +321,7 @@ class LocateMixin:
         sign=(1.0, 1.0),
         deadzone=0.05,
         settle=3,
-        timeout=4.0,
+        timeout=7.0,
         max_age=0.3,
     ):
         """机械臂视觉伺服对准: 把目标 label 对齐到画面期望点 (cx, cy)。
@@ -337,7 +337,7 @@ class LocateMixin:
             sign:     (大臂方向符号, 滑轨方向符号) 越对越偏就取反, 默认 (1.0, 1.0)
             deadzone: 两轴误差收敛死区, 默认 0.05
             settle:   误差进死区需连续保持的次数, 默认 3
-            timeout:  最大总时长(秒), 默认 4.0
+            timeout:  最大总时长(秒), 默认 7.0
             max_age:  后台缓存最大年龄(秒), 默认 0.3
 
         返回:
@@ -373,4 +373,119 @@ class LocateMixin:
                 self.arm.x_speed(sign_cy * gain_cy * e_cy)
             time.sleep(0.03)
         self.arm.x_speed(0)
+        return False
+
+    # ====================================================================
+    # 底盘视觉对齐(车动, 目标保持画面中心)
+    # ====================================================================
+    def chassis_align(
+        self,
+        label,
+        cx=0.0,
+        cy=0.0,
+        kp=(0.10, 0.10),
+        sign=(-1.0, 1.0),
+        deadband=0.05,
+        hold=4,
+        v_max=0.12,
+        decouple_xy=True,
+        timeout=7.0,
+        max_age=0.5,
+        max_lost_frames=30,
+    ):
+        """底盘视觉对齐: 移动底盘前后/左右, 把目标 label 对齐到画面期望点 (cx, cy)。
+
+        读后台实时缓存(非阻塞), 水平误差→底盘左右横移(vx), 垂直误差→底盘前后(vy),
+        两轴误差都进死区并连续保持 hold 帧即对齐完成。适合"车未就位、需平移对准"
+        的场景(放苗前把车对正槽标记 cylinder_set)。
+
+        参数:
+            label:    目标类别(必填), 如 cylinder_set / h_tu_dou
+            cx, cy:   期望目标中心(归一化坐标, 默认 (0,0)=画面正中心)
+            kp:       (x轴增益, y轴增益) 调灵敏度, 默认 (0.1, 0.1)
+            sign:     (x轴方向符号, y轴方向符号) 越对越偏就取反
+            deadband: 两轴误差收敛死区, 默认 0.05
+            hold:     进死区需连续保持的帧数(20Hz), 默认 4
+            v_max:    底盘速度上限(m/s), 默认 0.12
+            decouple_xy: True=每帧只驱动误差较大单轴(防麦轮 45° 对角打滑);
+                        False=两轴同时驱动(旧对角平移)
+            timeout:  最大总时长(秒), 默认 7.0
+            max_age:  后台缓存最大年龄(秒), 默认 0.5
+            max_lost_frames: 目标连续丢失帧数超该值即放弃, 默认 30(~1.5s)
+
+        返回:
+            bool: True=对齐到位(进死区 hold 帧), False=超时/丢目标/急停
+        """
+        end = time.time() + timeout
+        in_band = 0
+        lost_frames = 0
+        last_vx = 0.0
+        last_vy = 0.0
+        # 麦轮防打滑: 轴滞回, |cx|≈|cy| 时保持上次驱动轴, 避免来回换轴晃
+        last_axis = None
+        kp_x, kp_y = kp
+        sign_x, sign_y = sign
+        while True:
+            if time.time() > end:
+                break
+            if getattr(self, "_stop_flag", False):
+                break
+            # 读后台缓存筛目标(多个时取离期望点最近的)
+            dets = [
+                d
+                for d in self.get_realtime_detections(max_age=max_age)
+                if d[2] == label
+            ]
+            if not dets:
+                lost_frames += 1
+                in_band = 0
+                # 连丢 2 帧后按上次命令反向慢拉回, 避免"找到↔丢帧"来回晃
+                if (lost_frames == 2 and (last_vx != 0.0 or last_vy != 0.0)):
+                    vx, vy = -last_vx * 0.25, -last_vy * 0.25
+                else:
+                    vx, vy = 0.0, 0.0
+                self.set_velocity(vx, vy, 0.0)
+                if lost_frames > max_lost_frames:
+                    self.set_velocity(0.0, 0.0, 0.0)
+                    return False
+                time.sleep(0.05)
+                continue
+            dets.sort(key=lambda d: (d[4] - cx) ** 2 + (d[5] - cy) ** 2)
+            px, py = dets[0][4], dets[0][5]
+            lost_frames = 0
+            cx_err, cy_err = cx - px, cy - py
+
+            # P 控制律: decouple_xy 每帧只驱动误差大的单轴(防对角轮打滑)
+            if decouple_xy:
+                if abs(cy_err) > abs(cx_err) * 1.2 and last_axis == "x":
+                    last_axis = "y"
+                elif abs(cx_err) > abs(cy_err) * 1.2 and last_axis == "y":
+                    last_axis = "x"
+                elif last_axis not in ("x", "y"):
+                    last_axis = "x" if abs(cx_err) >= abs(cy_err) else "y"
+                if last_axis == "x":
+                    vx = sign_x * kp_x * cx_err
+                    vy = 0.0
+                else:
+                    vx = 0.0
+                    vy = sign_y * kp_y * cy_err
+            else:
+                vx = sign_x * kp_x * cx_err
+                vy = sign_y * kp_y * cy_err
+
+            # v_max 限幅
+            vx = max(-v_max, min(v_max, vx))
+            vy = max(-v_max, min(v_max, vy))
+
+            if abs(cx_err) < deadband and abs(cy_err) < deadband:
+                in_band += 1
+                self.set_velocity(0.0, 0.0, 0.0)
+                if in_band >= hold:
+                    return True
+            else:
+                in_band = 0
+                self.set_velocity(vx, vy, 0.0)
+            last_vx, last_vy = vx, vy
+            time.sleep(0.05)
+        self.set_velocity(0.0, 0.0, 0.0)
         return False
