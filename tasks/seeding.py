@@ -1,8 +1,9 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
-"""任务1: 自动移苗(播种) — 三列育苗筒 -> 种植槽. 
+"""任务1: 自动移苗(播种) — 三列育苗筒 -> 种植槽.
 
-只补了一个精简版机械臂视觉伺服(_servo), 其余全部映射到现有 SDK。
+视觉伺服已提为通用方法 car.arm_servo_align(tasks/tools/motion/locate.py),
+本文件只保留任务编排与抓/放动作; 其余底盘/姿态/吸放均映射现有 SDK。
 参数未测试以及运动逻辑和方向需要测试
 """
 import math
@@ -11,7 +12,7 @@ import time
 # ── 底盘列(相对位移 m) & 标签→槽映射 ──────────────────────────────
 SOURCE = {1: 0.0, 2: 0.15, 3: 0.30}
 SLOT = {1: 0.0, 2: 0.15, 3: 0.30}
-TARGET_SLOT = {"cylinder_1": 3, "cylinder_2": 2, "cylinder_3": 1}  # 左→右由大到小(1大→槽3)
+TARGET_SLOT = {"cylinder_1": 3, "cylinder_2": 2, "cylinder_3": 1}  # 3大→槽1, 2中→槽2, 1小→槽3(左→右由大到小)
 CYLINDERS = ("cylinder_1", "cylinder_2", "cylinder_3")
 
 # ── 吸嘴 setpoint(目标在吸嘴正下方时 bbox 中心, 归一化) — 需重标 ──
@@ -23,11 +24,13 @@ NOZZLE = {
 MARKER = "cylinder_set"
 MARKER_NOZZLE = (0.072, -0.331)
 
-# ── 姿态(arm: LEFT/MID/RIGHT; x/y 米, y 正=抬升) — 需重标 ──────────
-PICK_POSE = dict(x=0.0, y=0.15, arm="RIGHT", hand="DOWN")
-PLACE_POSE = dict(x=0.0, y=-0.2, arm="LEFT", hand="DOWN")
-GRASP_Y, LIFT_Y = 0.0, -0.2          # 降到底吸 / 抬回
-PLACE_Y, PLACE_LIFT_Y = -0.02, -0.04  # 放苗降 / 释放后抬离(防拖拽)
+# ── 姿态(角度直读, 不用字符串; x/y 米) — 需重标 ────────────────────
+#    Y 轴方向: 向下为正, 0=最底, -0.2=最顶(抬升为负值, 与 arm_motion 标定一致)
+#    大臂角度: LEFT=93 / MID=0 / RIGHT=-93; 末端角度: UP=-90 / MID=-37 / DOWN=0
+PICK_POSE = dict(x=0.0, y=-0.15, arm=-93, hand=0)
+PLACE_POSE = dict(x=0.0, y=-0.2, arm=93, hand=0)
+GRASP_Y, LIFT_Y = 0.0, -0.2          # 降至最底(0)吸 / 抬回(-0.2 最顶)
+PLACE_Y, PLACE_LIFT_Y = -0.02, -0.04  # 放苗微降 / 释放后抬离(防拖拽)
 
 MOVE_V = 0.1  # 底盘平移限速, 降漂移
 
@@ -37,50 +40,13 @@ PICK_SERVO = dict(gains=(0.5, 0.05), sign=(1.0, -1.0), deadzone=0.05)
 PLACE_SERVO = dict(gains=(0.3, 0.2), sign=(1.0, 1.0), deadzone=0.06)
 
 
-def _find(car, label, setpoint=None, max_age=0.3):
-    """侧视实时缓存里找目标; 多个时取离 setpoint 最近. 返回 (cx, cy) 归一化中心."""
-    dets = [d for d in car.get_realtime_detections(max_age=max_age) if d[2] == label]
-    if not dets:
-        return None
-    if setpoint:
-        sx, sy = setpoint
-        dets.sort(key=lambda d: (d[4] - sx) ** 2 + (d[5] - sy) ** 2)
-    d = dets[0]
-    return d[4], d[5]
-
-
-def _servo(car, label, setpoint, params, settle=3, timeout=4.0):
-    """机械臂 2D 视觉伺服: 大臂角控 cx + X 滑轨控 cy → 吸嘴 setpoint.
-
-    params 含 gains/sign/deadzone; sign 为方向符号, 越对越偏就取反。
-    """
-    gains, sign, deadzone = params["gains"], params["sign"], params["deadzone"]
-    end = time.time() + timeout
-    hits = 0
-    while time.time() < end:
-        p = _find(car, label, setpoint)
-        if p is None:
-            hits = 0
-            car.arm.x_speed(0)
-            time.sleep(0.02)
-            continue
-        e_cx, e_cy = setpoint[0] - p[0], setpoint[1] - p[1]
-        if abs(e_cx) < deadzone and abs(e_cy) < deadzone:
-            hits += 1
-            if hits >= settle:
-                car.arm.x_speed(0)
-                return True
-        else:
-            hits = 0
-            car.arm.set_arm_angle(car.arm.angle + sign[0] * gains[0] * e_cx)
-            car.arm.x_speed(sign[1] * gains[1] * e_cy)
-        time.sleep(0.03)
-    car.arm.x_speed(0)
-    return False
+def _has(car, label, max_age=0.3):
+    """只查不移动: 侧视实时缓存里是否存在该 label 目标(供选列/兜底扫描用)."""
+    return any(d[2] == label for d in car.get_realtime_detections(max_age=max_age))
 
 
 def _pick(car, label):
-    if not _servo(car, label, NOZZLE[label], PICK_SERVO):
+    if not car.arm_servo_align(label, *NOZZLE[label], **PICK_SERVO):
         raise RuntimeError(f"pick {label} 未收敛")
     car.arm.move_y_position(GRASP_Y)
     car.arm.grasp(True)
@@ -88,7 +54,8 @@ def _pick(car, label):
 
 
 def _place(car):
-    _servo(car, MARKER, MARKER_NOZZLE, PLACE_SERVO)  # 未收敛也放, 完赛优先
+    # 视觉伺服已提为通用方法 car.arm_servo_align; 未收敛也放, 完赛优先
+    car.arm_servo_align(MARKER, *MARKER_NOZZLE, **PLACE_SERVO)
     car.arm.move_y_position(PLACE_Y)
     car.arm.grasp(False)
     car.arm.move_y_position(PLACE_LIFT_Y)
@@ -113,7 +80,7 @@ def run(car):
                              PICK_POSE["arm"], PICK_POSE["hand"])
         print(f"已经移动到了PICK_POSE")
         # 扫描本列 cylinder; 没有就用剩余 label 兜底
-        label = next((l for l in CYLINDERS if _find(car, l)), None)
+        label = next((l for l in CYLINDERS if _has(car, l)), None)
         if label is None:
             label = next((l for l in CYLINDERS if l not in completed), None)
             if label is None:

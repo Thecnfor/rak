@@ -308,3 +308,69 @@ class LocateMixin:
         x_r = x_v * rf_dis / vf_dis
         y_r = y_v * rf_dis / vf_dis
         return x_r, y_r, rf_dis
+
+    # ====================================================================
+    # 机械臂视觉伺服对准(车不动, 纯臂闭环)
+    # ====================================================================
+    def arm_servo_align(
+        self,
+        label,
+        cx=0.0,
+        cy=0.0,
+        gains=(0.4, 0.1),
+        sign=(1.0, 1.0),
+        deadzone=0.05,
+        settle=3,
+        timeout=4.0,
+        max_age=0.3,
+    ):
+        """机械臂视觉伺服对准: 把目标 label 对齐到画面期望点 (cx, cy)。
+
+        读后台实时缓存(非阻塞), 大臂摆角修画面 cx 误差, X 滑轨伸缩修 cy 误差,
+        两轴误差都进死区并连续保持 settle 次即收敛。底盘完全不动。
+        适合"车已就位、只需臂就位"的场景(装苗/吸放)。
+
+        参数:
+            label:    目标类别(必填), 如 cylinder_1 / cylinder_set
+            cx, cy:   期望目标中心(归一化坐标, 默认 (0,0)=画面正中心)
+            gains:    (大臂增益, 滑轨增益) 调灵敏度, 标准默认 (0.4, 0.1)
+            sign:     (大臂方向符号, 滑轨方向符号) 越对越偏就取反, 默认 (1.0, 1.0)
+            deadzone: 两轴误差收敛死区, 默认 0.05
+            settle:   误差进死区需连续保持的次数, 默认 3
+            timeout:  最大总时长(秒), 默认 4.0
+            max_age:  后台缓存最大年龄(秒), 默认 0.3
+
+        返回:
+            bool: True=收敛到位, False=超时未到位
+        """
+        gain_cx, gain_cy = gains
+        sign_cx, sign_cy = sign
+        end = time.time() + timeout
+        hits = 0
+        while time.time() < end:
+            # 读后台缓存筛目标(多个时取离期望点最近的)
+            dets = [
+                d
+                for d in self.get_realtime_detections(max_age=max_age)
+                if d[2] == label
+            ]
+            if not dets:
+                hits = 0
+                self.arm.x_speed(0)
+                time.sleep(0.02)
+                continue
+            dets.sort(key=lambda d: (d[4] - cx) ** 2 + (d[5] - cy) ** 2)
+            px, py = dets[0][4], dets[0][5]
+            e_cx, e_cy = cx - px, cy - py
+            if abs(e_cx) < deadzone and abs(e_cy) < deadzone:
+                hits += 1
+                if hits >= settle:
+                    self.arm.x_speed(0)
+                    return True
+            else:
+                hits = 0
+                self.arm.set_arm_angle(self.arm.angle + sign_cx * gain_cx * e_cx)
+                self.arm.x_speed(sign_cy * gain_cy * e_cy)
+            time.sleep(0.03)
+        self.arm.x_speed(0)
+        return False
