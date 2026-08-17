@@ -19,9 +19,9 @@ def run(car) -> list:
                 animal_list[i] = res
         time.sleep(0.2)
         if i < 1:
-            car.lane_dis_offset(speed=0.2, dis_hold=0.13)
+            car.lane_dis_offset(speed=0.2, dis_hold=0.15)
         else:
-            car.move_distance([0.2,0,0], dis=0.13)
+            car.move_distance([0.2,0,0], dis=0.15)
             
     time.sleep(0.5)
     car.beep()
