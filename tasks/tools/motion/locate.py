@@ -323,6 +323,7 @@ class LocateMixin:
         settle=3,
         timeout=7.0,
         max_age=0.3,
+        debug=False,
     ):
         """机械臂视觉伺服对准: 把目标 label 对齐到画面期望点 (cx, cy)。
 
@@ -339,6 +340,7 @@ class LocateMixin:
             settle:   误差进死区需连续保持的次数, 默认 3
             timeout:  最大总时长(秒), 默认 7.0
             max_age:  后台缓存最大年龄(秒), 默认 0.3
+            debug:    逐帧打印 px/py/误差/输出, 用于现场定方向符号(默认 False)
 
         返回:
             bool: True=收敛到位, False=超时未到位
@@ -376,6 +378,9 @@ class LocateMixin:
                 hits = 0
                 self.arm.set_arm_angle(self.arm.angle + sign_cx * gain_cx * e_cx)
                 self.arm.x_speed(sign_cy * gain_cy * e_cy)
+                if debug:
+                    print(f"  [{label}] px={px:+.3f} py={py:+.3f} e_cx={e_cx:+.3f} e_cy={e_cy:+.3f}"
+                          f" → 臂{sign_cx * gain_cx * e_cx:+.2f}° 滑轨{sign_cy * gain_cy * e_cy:+.4f}m/s")
             time.sleep(0.03)
         self.arm.x_speed(0)
         print(f"[伺服] {label} 超时未收敛: 用时 {time.monotonic() - t0:.2f}s"
