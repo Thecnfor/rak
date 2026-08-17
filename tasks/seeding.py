@@ -39,8 +39,9 @@ MOVE_V = 0.1  # 底盘平移限速, 降漂移
 
 
 # ── 伺服参数(抓/放分开, 来自 4_car task_config.yml) ───────────────────
-PICK_SERVO = dict(gains=(0.2, 0.15), sign=(1.0, -1.0), deadzone=0.05)
-PLACE_SERVO = dict(gains=(0.2, 0.2), sign=(1.0, 1.0), deadzone=0.06)
+# gain_cy(滑轨速度)已按实测放小 50 倍: 0.15→0.003, 0.2→0.004, 避免甩到底。
+PICK_SERVO = dict(gains=(0.2, 0.003), sign=(1.0, -1.0), deadzone=0.05)
+PLACE_SERVO = dict(gains=(0.2, 0.004), sign=(1.0, 1.0), deadzone=0.06)
 
 
 def _has(car, label, max_age=0.3):

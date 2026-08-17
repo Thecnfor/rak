@@ -391,7 +391,6 @@ class LocateMixin:
         decouple_xy=True,
         timeout=7.0,
         max_age=0.5,
-        max_lost_frames=30,
     ):
         """底盘视觉对齐: 移动底盘前后/左右, 把目标 label 对齐到画面期望点 (cx, cy)。
 
@@ -411,10 +410,10 @@ class LocateMixin:
                         False=两轴同时驱动(旧对角平移)
             timeout:  最大总时长(秒), 默认 7.0
             max_age:  后台缓存最大年龄(秒), 默认 0.5
-            max_lost_frames: 目标连续丢失帧数超该值即放弃, 默认 30(~1.5s)
 
         返回:
-            bool: True=对齐到位(进死区 hold 帧), False=超时/丢目标/急停
+            bool: True=对齐到位(进死区 hold 帧), False=超时/急停
+                (目标丢失不再提前放弃, 会一直检索到超时为止)
         """
         end = time.time() + timeout
         in_band = 0
@@ -445,9 +444,6 @@ class LocateMixin:
                 else:
                     vx, vy = 0.0, 0.0
                 self.set_velocity(vx, vy, 0.0)
-                if lost_frames > max_lost_frames:
-                    self.set_velocity(0.0, 0.0, 0.0)
-                    return False
                 time.sleep(0.05)
                 continue
             dets.sort(key=lambda d: (d[4] - cx) ** 2 + (d[5] - cy) ** 2)
