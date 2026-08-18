@@ -320,7 +320,10 @@ class LocateMixin:
         gains=(0.4, 0.1),
         sign=(1.0, 1.0),
         deadzone=0.05,
-        settle=3,
+        settle=6,
+        lock=5,
+        prefer_left=False,
+        prefer_right=False,
         timeout=7.0,
         max_age=0.3,
         debug=False,
@@ -338,6 +341,11 @@ class LocateMixin:
             sign:     (大臂方向符号, 滑轨方向符号) 越对越偏就取反, 默认 (1.0, 1.0)
             deadzone: 两轴误差收敛死区, 默认 0.05
             settle:   误差进死区需连续保持的次数, 默认 3
+            lock:     追踪前需连续检测到目标的帧数(防追闪帧/误检), 默认 5
+            prefer_left: True=目标多时优先锁定画面最左侧那个(px 最小), 默认 False。
+                        prefer_right: True=目标多时优先锁定画面最右侧那个(px 最大), 默认 False。
+                        两者互斥, 同 True 时 prefer_left 生效。按任务臂位选择:
+                        左臂对齐(抓 cylinder_set)用 prefer_left, 右臂对齐(抓 cylinder_1/2/3)用 prefer_right。
             timeout:  最大总时长(秒), 默认 7.0
             max_age:  后台缓存最大年龄(秒), 默认 0.3
             debug:    逐帧打印 px/py/误差/输出, 用于现场定方向符号(默认 False)
@@ -350,8 +358,10 @@ class LocateMixin:
         t0 = time.monotonic()  # 单调钟, 不受 NTP 校时跳变影响, 避免对齐提前/超时退出
         end = t0 + timeout
         hits = 0
+        lock_cnt = 0
+        locked = False
         seen_once = False
-        print(f"[伺服] 对齐 {label}: 期望点({cx},{cy}) deadzone={deadzone} 超时{timeout}s")
+        print(f"[伺服] 对齐 {label}: 期望点({cx},{cy}) deadzone={deadzone} 锁定{lock}帧 超时{timeout}s")
         while time.monotonic() < end:
             # 读后台缓存筛目标(多个时取离期望点最近的)
             dets = [
@@ -360,12 +370,30 @@ class LocateMixin:
                 if d[2] == label
             ]
             if not dets:
+                lock_cnt = 0
+                locked = False
                 hits = 0
                 self.arm.x_speed(0)
                 time.sleep(0.02)
                 continue
             seen_once = True
-            dets.sort(key=lambda d: (d[4] - cx) ** 2 + (d[5] - cy) ** 2)
+            # 锁定: 目标须连续出现 lock 帧才开始追踪, 避免追闪帧/误检
+            lock_cnt += 1
+            if lock_cnt < lock:
+                self.arm.x_speed(0)
+                time.sleep(0.02)
+                continue
+            if not locked:
+                locked = True
+                print(f"  [{label}] 已锁定({lock_cnt}帧), 开始追踪")
+            # 目标挑选: prefer_right 优先画面最右(px 最大), prefer_left 优先最左(px 最小),
+            # 否则默认取离期望点最近的
+            if prefer_right and not prefer_left:
+                dets.sort(key=lambda d: -d[4])
+            elif prefer_left:
+                dets.sort(key=lambda d: d[4])
+            else:
+                dets.sort(key=lambda d: (d[4] - cx) ** 2 + (d[5] - cy) ** 2)
             px, py = dets[0][4], dets[0][5]
             e_cx, e_cy = cx - px, cy - py
             if abs(e_cx) < deadzone and abs(e_cy) < deadzone:
@@ -399,9 +427,9 @@ class LocateMixin:
         cx=0.0,
         cy=0.0,
         kp=(0.10, 0.10),
-        sign=(-1.0, 1.0),
+        sign=(-1.0, -1.0),
         deadband=0.05,
-        hold=4,
+        hold=6,
         v_max=0.12,
         decouple_xy=True,
         timeout=7.0,
@@ -418,8 +446,8 @@ class LocateMixin:
             cx, cy:   期望目标中心(归一化坐标, 默认 (0,0)=画面正中心)
             kp:       (车左右增益, 车前后增益) 调灵敏度, 默认 (0.1, 0.1)
             sign:     (车左右横移符号, 车前后符号); 注意轴交叉: 画面横向误差驱动车前后、
-                      画面纵向误差驱动车左右(侧视相机竖拍)。越对越偏就取反, 默认 (-1, 1)
-                      表示目标在画面左侧→车后退、右侧→车前进, 目标在上方→车向左。
+                      画面纵向误差驱动车左右(侧视相机竖拍)。越对越偏就取反, 默认 (-1, -1)
+                      表示目标在画面左侧→车前进、右侧→车后退, 目标在上方→车向左。
             deadband: 两轴误差收敛死区, 默认 0.05
             hold:     进死区需连续保持的帧数(20Hz), 默认 4
             v_max:    底盘速度上限(m/s), 默认 0.12

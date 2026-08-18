@@ -17,12 +17,12 @@ CYLINDERS = ("cylinder_1", "cylinder_2", "cylinder_3")
 
 # ── 吸嘴 setpoint(目标在吸嘴正下方时 bbox 中心, 归一化) — 需重标 ──
 NOZZLE = {
-    "cylinder_1": (0.037, -0.326),
-    "cylinder_2": (0.072, -0.306),
-    "cylinder_3": (0.050, -0.425),
+    "cylinder_1": (0.0, -0.326),
+    "cylinder_2": (0.0, -0.306),
+    "cylinder_3": (0.0, -0.425),
 }
 MARKER = "cylinder_set"
-MARKER_NOZZLE = (0.072, -0.331)
+MARKER_NOZZLE = (0.0, -0.331)
 
 # ── 姿态(角度直读, 不用字符串; x/y 米) — 需重标 ────────────────────
 #    Y 轴方向: 向下为正, 0=最底, -0.2=最顶(抬升为负值, 与 arm_motion 标定一致)
@@ -63,7 +63,8 @@ def _ensure_hand(car, target=10.0, retries=3, settle=0.5):
 
 def _pick(car, label):
     _ensure_hand(car)  # ① 视觉对齐前: 强制末端到位
-    if not car.arm_servo_align(label, *NOZZLE[label], **PICK_SERVO):
+    # 右臂对齐 cylinder_1/2/3(抓取): 锁定画面靠右的目标
+    if not car.arm_servo_align(label, *NOZZLE[label], prefer_right=True, **PICK_SERVO):
         raise RuntimeError(f"pick {label} 未收敛")
     _ensure_hand(car)  # ② 抓取前再兜底: 滑轨/Y 大电流移动可能又把舵机打回 -90
     car.arm.move_y_position(GRASP_Y)
@@ -109,7 +110,8 @@ def _pre_align(car):
     car.arm.set_arm_pose(PLACE_POSE["x"], PLACE_POSE["y"],
                          PLACE_POSE["arm"], PLACE_POSE["hand"])
     _ensure_hand(car)  # 视觉对齐前: 强制末端到位
-    ok = car.arm_servo_align(MARKER, *MARKER_NOZZLE, **PLACE_SERVO)
+    # 左臂对齐 cylinder_set(放苗预对位): 锁定画面靠左的目标
+    ok = car.arm_servo_align(MARKER, *MARKER_NOZZLE, prefer_left=True, **PLACE_SERVO)
     if ok:
         # 伺服后臂已微调到槽正上方, 记下此刻 4 轴状态作为放苗姿势
         pose = (car.arm.x_get_position(), car.arm.y_get_position(),
