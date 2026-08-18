@@ -328,6 +328,7 @@ class LocateMixin:
         prefer_right=False,
         timeout=7.0,
         max_age=0.3,
+        min_score=0.0,
         debug=False,
     ):
         """机械臂视觉伺服对准: 把目标 label 对齐到画面期望点 (cx, cy)。
@@ -350,6 +351,7 @@ class LocateMixin:
                         左臂对齐(抓 cylinder_set)用 prefer_left, 右臂对齐(抓 cylinder_1/2/3)用 prefer_right。
             timeout:  最大总时长(秒), 默认 7.0
             max_age:  后台缓存最大年龄(秒), 默认 0.3
+            min_score: 目标置信度下限(score∈[0,1]), 低于此分的框不算目标; 默认 0.0 不过滤
             debug:    逐帧打印 px/py/误差/输出, 用于现场定方向符号(默认 False)
 
         返回:
@@ -369,7 +371,7 @@ class LocateMixin:
             dets = [
                 d
                 for d in self.get_realtime_detections(max_age=max_age)
-                if d[2] == label
+                if d[2] == label and d[3] >= min_score
             ]
             if not dets:
                 # 缺帧不清零 lock_cnt(只不再累计), 避免偶发漏检导致永远锁不定;

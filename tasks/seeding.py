@@ -31,7 +31,7 @@ MARKER_NOZZLE = (0.0, -0.331)
 # ── 姿态(角度直读, 不用字符串; x/y 米) — 需重标 ────────────────────
 #    Y 轴方向: 向下为正, 0=最底, -0.2=最顶(抬升为负值, 与 arm_motion 标定一致)
 #    大臂角度: LEFT=93 / MID=0 / RIGHT=-93; 末端角度: UP=-90 / MID=-37 / DOWN=0
-#    注: 现场实测发 0 只到 -10, 末端"竖直向下"按 +10 上标(PICK/PLACE/_ensure_hand 均用 +10)。
+#    注: 末端"竖直向下"角度 2026-08-18 现场定为 -10(PICK/PLACE/_ensure_hand 均用 -10)。
 #    尺寸→槽(重要): cylinder_3=最大筒→槽1(最近), cylinder_2=中筒→槽2,
 #    cylinder_1=最小筒→槽3(最远); 即槽列位置从近到远 1/2/3 对应 大/中/小。
 PICK_POSE = dict(x=-0.05, y=-0.15, arm=-90, hand=-10)
@@ -54,10 +54,16 @@ PLACE_SERVO = dict(
     gains=(0.25, 0.15), sign=(-1.0, -1.0), deadzone=0.03, timeout=15.0, debug=True
 )
 
+# ── 置信度过滤: 只认 85% 以上的目标, 滤掉低分误检(选列/对齐统一用) ──
+SCORE_THRESHOLD = 0.85
+
 
 def _has(car, label, max_age=0.3):
-    """只查不移动: 侧视实时缓存里是否存在该 label 目标(供选列/兜底扫描用)."""
-    return any(d[2] == label for d in car.get_realtime_detections(max_age=max_age))
+    """只查不移动: 侧视实时缓存里是否存在该 label 目标(置信度≥SCORE_THRESHOLD, 供选列/兜底扫描用)."""
+    return any(
+        d[2] == label and d[3] >= SCORE_THRESHOLD
+        for d in car.get_realtime_detections(max_age=max_age)
+    )
 
 
 def _ensure_hand(car, target=-10.0, retries=3, settle=0.5):
@@ -77,7 +83,9 @@ def _pick(car, label):
     """
     _ensure_hand(car)  # ① 视觉对齐前: 强制末端到位
     # 右臂对齐 cylinder_1/2/3(抓取): 锁定画面靠右的目标
-    ok = car.arm_servo_align(label, *NOZZLE[label], prefer_right=True, **PICK_SERVO)
+    ok = car.arm_servo_align(
+        label, *NOZZLE[label], prefer_right=True, min_score=SCORE_THRESHOLD, **PICK_SERVO
+    )
     if not ok:
         print(f"[抓取] {label} 对齐未收敛, 继续按当前位下放抓取")
     _ensure_hand(car)  # ② 抓取前再兜底: 滑轨/Y 大电流移动可能又把舵机打回 -90
@@ -129,7 +137,9 @@ def _pre_align(car):
     )
     _ensure_hand(car)  # 视觉对齐前: 强制末端到位
     # 左臂对齐 cylinder_set(放苗预对位): 锁定画面靠左的目标
-    ok = car.arm_servo_align(MARKER, *MARKER_NOZZLE, prefer_left=True, **PLACE_SERVO)
+    ok = car.arm_servo_align(
+        MARKER, *MARKER_NOZZLE, prefer_left=True, min_score=SCORE_THRESHOLD, **PLACE_SERVO
+    )
     if ok:
         # 伺服后臂已微调到槽正上方, 记下此刻 4 轴状态作为放苗姿势
         pose = (
