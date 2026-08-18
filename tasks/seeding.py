@@ -29,9 +29,9 @@ MARKER_NOZZLE = (0.072, -0.331)
 #    大臂角度: LEFT=93 / MID=0 / RIGHT=-93; 末端角度: UP=-90 / MID=-37 / DOWN=0
 #    尺寸→槽(重要): cylinder_3=最大筒→槽1(最近), cylinder_2=中筒→槽2,
 #    cylinder_1=最小筒→槽3(最远); 即槽列位置从近到远 1/2/3 对应 大/中/小。
-PICK_POSE = dict(x=-0.1, y=-0.15, arm=-93, hand=0)
+PICK_POSE = dict(x=-0.07, y=-0.15, arm=-93, hand=0)
 PLACE_POSE = dict(x=-0.2, y=-0.15, arm=93, hand=0)  # 机械臂预对位基准/放苗兜底
-CHASSIS_ALIGN_X = -0.28  # 仅底盘对齐阶段: 滑轨放更外侧, 便于把槽标拉进画面中心
+CHASSIS_ALIGN_X = -0.25  # 仅底盘对齐阶段: 滑轨放更外侧, 便于把槽标拉进画面中心
 GRASP_Y, LIFT_Y = 0.0, -0.15         # 降至最底(0)吸 / 抬回(-0.15)
 PLACE_Y, PLACE_LIFT_Y = -0.02, -0.15 # 放苗微降 / 释放后一步抬到 -0.15
 
@@ -39,11 +39,11 @@ MOVE_V = 0.1  # 底盘平移限速, 降漂移
 
 
 # ── 伺服参数(抓/放分开, 来自 4_car task_config.yml) ───────────────────
-# gain_cy 曾按 50 倍放小到 0.003/0.004, 实测 7s 内滑轨几乎不动(~0.004m/s),
-# 无法收敛; 恢复为 0.1(低于原 0.15/0.2, 仍能几秒内修正)。direction 符号待
-# 现场看 debug 打印逐轴确认。debug=True 确认完就删。
-PICK_SERVO = dict(gains=(0.2, 0.1), sign=(1.0, -1.0), deadzone=0.05, debug=True)
-PLACE_SERVO = dict(gains=(0.2, 0.1), sign=(1.0, 1.0), deadzone=0.06, debug=True)
+# gain_cy 曾按 50 倍放小到 0.003/0.004(7s 内滑轨几乎不动), 恢复为 0.1。
+# sign_cy 已按现场观察反手: 原代码滑轨方向驱动反了(日志 py 越追越远)。
+# debug=True 待收敛确认后再删。
+PICK_SERVO = dict(gains=(0.2, 0.1), sign=(1.0, 1.0), deadzone=0.05, debug=True)
+PLACE_SERVO = dict(gains=(0.2, 0.1), sign=(1.0, -1.0), deadzone=0.06, debug=True)
 
 
 def _has(car, label, max_age=0.3):
@@ -73,7 +73,7 @@ def _pre_align(car):
     """第1列预对位: 摆放苗姿势并伺服对齐槽标记, 记住此刻 4 轴放苗姿态.
 
     两段对齐(顺序固定, 后段不依赖前段成功, 都完赛优先):
-      1) 底盘对齐: 滑轨放 CHASSIS_ALIGN_X(-0.28) 外侧姿态, 车前后/左右横移,
+      1) 底盘对齐: 滑轨放 CHASSIS_ALIGN_X(-0.25) 外侧姿态, 车前后/左右横移,
          把 cylinder_set 槽标记移到画面中心(失败/超时也继续, 只为粗对准)
       2) 机械臂对齐: 把滑轨摆回 PLACE_POSE(-0.2) 基准, 大臂+滑轨把吸嘴
          精确送到槽标记正上方(arm_servo_align)
@@ -84,7 +84,14 @@ def _pre_align(car):
     # ① 底盘对齐姿态: 滑轨放外侧, 视野敞开便于检测槽标记
     car.arm.set_arm_pose(CHASSIS_ALIGN_X, PLACE_POSE["y"],
                          PLACE_POSE["arm"], PLACE_POSE["hand"])
+    # 手爪: 大臂摆位+滑轨连发瞬间首条 hand 命令易被总线竞争吞掉/未到位
+    # (实测底盘对齐阶段手爪停在 -90)。等臂稳后重发向下并给舵机到位时间。
+    time.sleep(0.5)
+    car.arm.set_hand_angle(PLACE_POSE["hand"])
+    time.sleep(0.5)
     ok_chassis = car.chassis_align(MARKER, timeout=10.0)  # 车动, 槽标记居中; 10s 内一直检索, 不提前放弃
+    # 底盘对齐轮系高频占总线, 手爪可能又被挤回, 补发一次
+    car.arm.set_hand_angle(PLACE_POSE["hand"])
     print(f"底盘对齐槽标记: {'成功' if ok_chassis else '超时/未对齐, 继续预对位'}")
     # ② 机械臂预对位: 车已粗对准, 把滑轨摆回 -0.2 基准再让臂精对位
     car.arm.set_arm_pose(PLACE_POSE["x"], PLACE_POSE["y"],
