@@ -436,6 +436,8 @@ class LocateMixin:
         decouple_xy=True,
         timeout=7.0,
         max_age=0.5,
+        prefer_left=False,
+        prefer_right=False,
     ):
         """底盘视觉对齐: 移动底盘前后/左右, 把目标 label 对齐到画面期望点 (cx, cy)。
 
@@ -447,9 +449,9 @@ class LocateMixin:
             label:    目标类别(必填), 如 cylinder_set / h_tu_dou
             cx, cy:   期望目标中心(归一化坐标, 默认 (0,0)=画面正中心)
             kp:       (车左右增益, 车前后增益) 调灵敏度, 默认 (0.1, 0.1)
-            sign:     (车左右横移符号, 车前后符号); 交叉映射: 画面横向误差驱动车前后、
-                      画面纵向误差驱动车左右(侧视竖拍)。vy 正=前进。默认 (-1, 1)
-                      表示目标在画面左侧→车前进、右侧→车后退, 目标在上方→车向左。
+            sign:     (车左右横移符号, 车前后符号); 交叉映射: 画面横向误差驱动车前后(vx,
+                      正=前进)、画面纵向误差驱动车左右(vy)。默认 (-1, 1) 表示目标在
+                      画面左侧→车前进、右侧→车后退, 目标在上方→车向左。
             deadband: 两轴误差收敛死区, 默认 0.05
             hold:     进死区需连续保持的帧数(20Hz), 默认 4
             v_max:    底盘速度上限(m/s), 默认 0.12
@@ -457,6 +459,9 @@ class LocateMixin:
                         False=两轴同时驱动(旧对角平移)
             timeout:  最大总时长(秒), 默认 7.0
             max_age:  后台缓存最大年龄(秒), 默认 0.5
+            prefer_left: True=目标多时优先锁定画面最左侧那个(px 最小), 默认 False。
+            prefer_right: True=目标多时优先锁定画面最右侧那个(px 最大), 默认 False。
+                两者互斥, 同 True 时 prefer_left 生效。语义同 arm_servo_align。
 
         返回:
             bool: True=对齐到位(进死区 hold 帧), False=超时/急停
@@ -497,13 +502,21 @@ class LocateMixin:
                 self.set_velocity(vx, vy, 0.0)
                 time.sleep(0.05)
                 continue
-            dets.sort(key=lambda d: (d[4] - cx) ** 2 + (d[5] - cy) ** 2)
+            if prefer_right and not prefer_left:
+                dets.sort(key=lambda d: -d[4])
+            elif prefer_left:
+                dets.sort(key=lambda d: d[4])
+            else:
+                dets.sort(key=lambda d: (d[4] - cx) ** 2 + (d[5] - cy) ** 2)
             px, py = dets[0][4], dets[0][5]
             lost_frames = 0
             cx_err, cy_err = cx - px, cy - py
 
             # 交叉映射(用户明确要求): 侧视相机竖拍, 画面横向=场地纵深、画面纵向=场地横向。
-            # 所以 横向误差 cx_err 驱动车前后(vy), 纵向误差 cy_err 驱动车左右(vx)。
+            # set_velocity(x=车前后, y=车横向), 所以 画面横向误差 cx_err 驱动车前后(x-slot),
+            # 画面纵向误差 cy_err 驱动车横向(y-slot)。kp=(左右增益, 前后增益),
+            # sign=(左右符号, 前后符号)。(旧实现把两轴算反: 前后被 cy_err 驱动,
+            # 横向被 cx_err 驱动, 实车表现为"横移", 已修正)
             # P 控制律: decouple_xy 每帧只驱动误差大的单轴(防对角轮打滑)
             if decouple_xy:
                 if abs(cy_err) > abs(cx_err) * 1.2 and last_axis == "x":
@@ -512,15 +525,15 @@ class LocateMixin:
                     last_axis = "x"
                 elif last_axis not in ("x", "y"):
                     last_axis = "x" if abs(cx_err) >= abs(cy_err) else "y"
-                if last_axis == "x":          # 车左右横移 ← 画面纵向误差
-                    vx = sign_x * kp_x * cy_err
+                if last_axis == "x":          # 车前后 ← 画面横向误差
+                    vx = sign_y * kp_y * cx_err
                     vy = 0.0
-                else:                         # 车前后 ← 画面横向误差
+                else:                         # 车横向 ← 画面纵向误差
                     vx = 0.0
-                    vy = sign_y * kp_y * cx_err
+                    vy = sign_x * kp_x * cy_err
             else:
-                vx = sign_x * kp_x * cy_err
-                vy = sign_y * kp_y * cx_err
+                vx = sign_y * kp_y * cx_err
+                vy = sign_x * kp_x * cy_err
 
             # v_max 限幅
             vx = max(-v_max, min(v_max, vx))
