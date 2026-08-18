@@ -29,9 +29,9 @@ MARKER_NOZZLE = (0.072, -0.331)
 #    大臂角度: LEFT=93 / MID=0 / RIGHT=-93; 末端角度: UP=-90 / MID=-37 / DOWN=0
 #    尺寸→槽(重要): cylinder_3=最大筒→槽1(最近), cylinder_2=中筒→槽2,
 #    cylinder_1=最小筒→槽3(最远); 即槽列位置从近到远 1/2/3 对应 大/中/小。
-PICK_POSE = dict(x=-0.07, y=-0.15, arm=-93, hand=0)
+PICK_POSE = dict(x=-0.05, y=-0.15, arm=-93, hand=0)
 PLACE_POSE = dict(x=-0.2, y=-0.15, arm=93, hand=0)  # 机械臂预对位基准/放苗兜底
-CHASSIS_ALIGN_X = -0.25  # 仅底盘对齐阶段: 滑轨放更外侧, 便于把槽标拉进画面中心
+CHASSIS_ALIGN_X = -0.26  # 仅底盘对齐阶段: 滑轨放更外侧, 便于把槽标拉进画面中心
 GRASP_Y, LIFT_Y = 0.0, -0.15         # 降至最底(0)吸 / 抬回(-0.15)
 PLACE_Y, PLACE_LIFT_Y = -0.02, -0.15 # 放苗微降 / 释放后一步抬到 -0.15
 
@@ -43,8 +43,8 @@ MOVE_V = 0.1  # 底盘平移限速, 降漂移
 # sign 按现场最终确认双表全反(目标在左→该摆向RIGHT、目标在上→该左伸/右缩),
 # 相对车上 3470eaf 的 (1,1)/(1,-1) 两个符号都取反: PICK(-1,-1), PLACE(-1,1)。
 # debug=True 待收敛确认后再删。
-PICK_SERVO = dict(gains=(0.2, 0.1), sign=(-1.0, -1.0), deadzone=0.05, debug=True)
-PLACE_SERVO = dict(gains=(0.2, 0.1), sign=(-1.0, 1.0), deadzone=0.06, debug=True)
+PICK_SERVO = dict(gains=(0.2, 0.1), sign=(-1.0, 1.0), deadzone=0.05, debug=True)
+PLACE_SERVO = dict(gains=(0.2, 0.1), sign=(-1.0, -1.0), deadzone=0.06, debug=True)
 
 
 def _has(car, label, max_age=0.3):
@@ -52,13 +52,20 @@ def _has(car, label, max_age=0.3):
     return any(d[2] == label for d in car.get_realtime_detections(max_age=max_age))
 
 
+def _ensure_hand(car, target=0.0, retries=3, settle=0.5):
+    """视觉对齐前强制末端手爪到位: 舵机无位置回读(只能发不能读),
+    故以"连发命令+等舵机到位时间+重试"覆盖丢帧/大电流复位场景,
+    保证手爪确实在 target 角度再开始对齐/抓取。"""
+    for _ in range(retries):
+        car.arm.set_hand_angle(target)
+        time.sleep(settle)
+
+
 def _pick(car, label):
+    _ensure_hand(car)  # ① 视觉对齐前: 强制末端到位
     if not car.arm_servo_align(label, *NOZZLE[label], **PICK_SERVO):
         raise RuntimeError(f"pick {label} 未收敛")
-    # 手爪兜底: 刚做完滑轨/Y 大电流移动, 舵机可能被寄回 -90(失电复位或丢帧),
-    # 抓取前确保末端在 0。
-    car.arm.set_hand_angle(0)
-    time.sleep(0.3)
+    _ensure_hand(car)  # ② 抓取前再兜底: 滑轨/Y 大电流移动可能又把舵机打回 -90
     car.arm.move_y_position(GRASP_Y)
     car.arm.grasp(True)
     car.arm.move_y_position(LIFT_Y)
@@ -101,6 +108,7 @@ def _pre_align(car):
     # ② 机械臂预对位: 车已粗对准, 把滑轨摆回 -0.2 基准再让臂精对位
     car.arm.set_arm_pose(PLACE_POSE["x"], PLACE_POSE["y"],
                          PLACE_POSE["arm"], PLACE_POSE["hand"])
+    _ensure_hand(car)  # 视觉对齐前: 强制末端到位
     ok = car.arm_servo_align(MARKER, *MARKER_NOZZLE, **PLACE_SERVO)
     if ok:
         # 伺服后臂已微调到槽正上方, 记下此刻 4 轴状态作为放苗姿势
