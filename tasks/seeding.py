@@ -27,10 +27,11 @@ MARKER_NOZZLE = (0.072, -0.331)
 # ── 姿态(角度直读, 不用字符串; x/y 米) — 需重标 ────────────────────
 #    Y 轴方向: 向下为正, 0=最底, -0.2=最顶(抬升为负值, 与 arm_motion 标定一致)
 #    大臂角度: LEFT=93 / MID=0 / RIGHT=-93; 末端角度: UP=-90 / MID=-37 / DOWN=0
+#    注: 现场实测发 0 只到 -10, 末端"竖直向下"按 +10 上标(PICK/PLACE/_ensure_hand 均用 +10)。
 #    尺寸→槽(重要): cylinder_3=最大筒→槽1(最近), cylinder_2=中筒→槽2,
 #    cylinder_1=最小筒→槽3(最远); 即槽列位置从近到远 1/2/3 对应 大/中/小。
-PICK_POSE = dict(x=-0.05, y=-0.15, arm=-93, hand=0)
-PLACE_POSE = dict(x=-0.2, y=-0.15, arm=93, hand=0)  # 机械臂预对位基准/放苗兜底
+PICK_POSE = dict(x=-0.05, y=-0.15, arm=-93, hand=10)
+PLACE_POSE = dict(x=-0.2, y=-0.15, arm=93, hand=10)  # 机械臂预对位基准/放苗兜底
 CHASSIS_ALIGN_X = -0.26  # 仅底盘对齐阶段: 滑轨放更外侧, 便于把槽标拉进画面中心
 GRASP_Y, LIFT_Y = 0.0, -0.15         # 降至最底(0)吸 / 抬回(-0.15)
 PLACE_Y, PLACE_LIFT_Y = -0.02, -0.15 # 放苗微降 / 释放后一步抬到 -0.15
@@ -41,10 +42,9 @@ MOVE_V = 0.1  # 底盘平移限速, 降漂移
 # ── 伺服参数(抓/放分开, 来自 4_car task_config.yml) ───────────────────
 # gain_cy 曾按 50 倍放小到 0.003/0.004(7s 内滑轨几乎不动), 恢复为 0.1。
 # sign 按现场最终确认双表全反(目标在左→该摆向RIGHT、目标在上→该左伸/右缩),
-# 相对车上 3470eaf 的 (1,1)/(1,-1) 两个符号都取反: PICK(-1,-1), PLACE(-1,1)。
-# debug=True 待收敛确认后再删。
-PICK_SERVO = dict(gains=(0.2, 0.1), sign=(-1.0, 1.0), deadzone=0.05, debug=True)
-PLACE_SERVO = dict(gains=(0.2, 0.1), sign=(-1.0, -1.0), deadzone=0.06, debug=True)
+# 现用值: PICK(-1,1), PLACE(-1,-1), 对齐超时 10s。debug=True 待收敛确认后再删。
+PICK_SERVO = dict(gains=(0.2, 0.1), sign=(-1.0, 1.0), deadzone=0.05, timeout=10.0, debug=True)
+PLACE_SERVO = dict(gains=(0.2, 0.1), sign=(-1.0, -1.0), deadzone=0.06, timeout=10.0, debug=True)
 
 
 def _has(car, label, max_age=0.3):
@@ -52,7 +52,7 @@ def _has(car, label, max_age=0.3):
     return any(d[2] == label for d in car.get_realtime_detections(max_age=max_age))
 
 
-def _ensure_hand(car, target=0.0, retries=3, settle=0.5):
+def _ensure_hand(car, target=10.0, retries=3, settle=0.5):
     """视觉对齐前强制末端手爪到位: 舵机无位置回读(只能发不能读),
     故以"连发命令+等舵机到位时间+重试"覆盖丢帧/大电流复位场景,
     保证手爪确实在 target 角度再开始对齐/抓取。"""
