@@ -29,7 +29,7 @@ from .preprocess import (
     WarpAffine,
     preprocess,
 )
-from .utils import nms
+# 注: 原 predict 在此 import 并做二次 NMS, 现改为原始输出直通(需求), 不再使用
 
 # repo_root = smartcar/paddlebaidu/trt_backend -> 上 3 层到项目根
 _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
@@ -69,10 +69,11 @@ class DetectResult:
             self.bbox[0] = 0
         if self.bbox[1] < 0:
             self.bbox[1] = 0
+        # 模型输入恒为 640x640(客户端已 resize), 两轴上限都是 639
         if self.bbox[2] > 639:
             self.bbox[2] = 639
-        if self.bbox[3] > 479:
-            self.bbox[3] = 479
+        if self.bbox[3] > 639:
+            self.bbox[3] = 639
         self.center = [self.bbox[0] + self.bbox[2] / 2, self.bbox[1] + self.bbox[3] / 2]
         self.middle = [320, 240]
 
@@ -158,11 +159,22 @@ class TrtEngine:
 
         results = {}
         for name, is_input, shape, np_dtype in self._outputs:
-            actual = tuple(self.context.get_tensor_shape(name))
-            n = int(np.prod([abs(d) for d in actual]))
-            buf = np.empty(n, dtype=np_dtype)
-            cuda_utils.memcpy_dtoh(buf, self._ptrs[name], n * np_dtype.itemsize)
-            results[name] = buf.reshape(actual)
+            if any(d < 0 for d in shape):
+                # 动态输出(如 task 的 boxes [N,6]): 实测 get_tensor_shape 返回
+                # 被静态化的 [1,6](而非实际 N), 若按它拷贝只会拿到第一行。
+                # 引擎实际把 N 行全部写入按预算分配的设备缓冲区, 这里整块拷回,
+                # 由调用方按 boxes_num 截取真实数量。
+                shape_fixed = tuple(_DYN_BUDGET if d < 0 else d for d in shape)
+                n = int(np.prod(shape_fixed))
+                buf = np.empty(n, dtype=np_dtype)
+                cuda_utils.memcpy_dtoh(buf, self._ptrs[name], n * np_dtype.itemsize)
+                results[name] = buf.reshape(shape_fixed)
+            else:
+                actual = tuple(self.context.get_tensor_shape(name))
+                n = int(np.prod([abs(d) for d in actual]))
+                buf = np.empty(n, dtype=np_dtype)
+                cuda_utils.memcpy_dtoh(buf, self._ptrs[name], n * np_dtype.itemsize)
+                results[name] = buf.reshape(actual)
         return results
 
     def _input_np_dtype(self, name):
@@ -208,21 +220,11 @@ class TrtYoloeInfer:
     def predict(self, image, normalize_out=False):
         image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         boxes, boxes_num = self._run(image_rgb)
-        # 与 paddle Detector.filter_box 一致
-        np_boxes_num = boxes_num
-        boxes_all = boxes
-        start_idx = 0
-        filter_boxes = []
-        for i in range(len(np_boxes_num)):
-            bnum = int(np_boxes_num[i])
-            boxes_i = boxes_all[start_idx : start_idx + bnum, :]
-            idx = boxes_i[:, 1] > self.threshold
-            filter_boxes.append(boxes_i[idx, :])
-            start_idx += bnum
-        det_res = {"boxes": np.concatenate(filter_boxes)}
-
-        # 与 paddle YoloeInfer.predict 一致(含 nms 调用方式)
-        det = nms(det_res["boxes"], len(self.label_list))
+        # boxes 是整块预算缓冲(4096 行), 真实框数取 boxes_num[0]。
+        det = boxes[: int(boxes_num[0])]
+        # 过滤: 只保留 score > draw_threshold(0.5) 的框, 不做 topk 截断,
+        # 所有高分框全部保留; 二次 NMS 已不需要(引擎内置 NMS 已做)。
+        det = det[det[:, 1] > self.threshold]
         ret = []
         for bbox in det:
             cls_id, score, rect = int(bbox[0]), bbox[1], bbox[2:].astype(np.int32)

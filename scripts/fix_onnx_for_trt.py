@@ -32,6 +32,37 @@ SQUEEZE_AXES = {
 }
 
 
+def fix_squeeze7(graph):
+    """把 p2o.Squeeze.7 换成 Reshape([-1, 6]), 修复多目标输出被截成 1 框的 bug。
+
+    paddle2onnx 导出的 NMS 输出链: Concat.39 = [1, N, 6](batch=1, N 框, 6 字段)
+    -> Squeeze.7(axes=[0]) -> [N, 6]。ONNX 逻辑正确, 但该 Squeeze 的 axes 是
+    动态常量输入, TRT 编译动态 shape 时把维序搞错, 实际压掉了框数维, 引擎输出
+    固定为 [1, 6](永远只有 1 个框; boxes_num 却正确报 N)。用 Reshape([-1, 6])
+    替换, 无论 TRT 把动态维解释成 [1, N, 6] 还是 [N, 1, 6], 都正确展成 [N, 6]。
+    """
+    for node in graph.nodes:
+        if node.op == "Squeeze" and node.name == "p2o.Squeeze.7":
+            out_var = node.outputs[0]  # 复用已有输出变量(它同时是 graph output)
+            shape_const = gs.Constant(
+                name="p2o.Squeeze.7/reshape_shape",
+                values=np.array([-1, 6], dtype=np.int64),
+            )
+            graph.nodes.append(
+                gs.Node(
+                    op="Reshape",
+                    name="p2o.Reshape.7_fix",
+                    inputs=[node.inputs[0], shape_const],
+                    outputs=[out_var],
+                )
+            )
+            for o in node.outputs:
+                o.inputs = [i for i in o.inputs if i.name != node.name]
+            node.outputs = []
+            return True
+    return False
+
+
 def main():
     src = sys.argv[1] if len(sys.argv) > 1 else "trt_engines/task.onnx"
     dst = sys.argv[2] if len(sys.argv) > 2 else "trt_engines/task_trt.onnx"
@@ -49,6 +80,9 @@ def main():
             node.inputs.append(
                 gs.Constant(name=f"{node.name}/axes", values=axes))
             changed.append(node.name)
+
+    if fix_squeeze7(graph):
+        changed.append("p2o.Squeeze.7 -> Reshape([-1, 6])")
 
     graph.cleanup().toposort()
     onnx.save(gs.export_onnx(graph), dst)

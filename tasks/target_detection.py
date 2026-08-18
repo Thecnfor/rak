@@ -43,7 +43,7 @@ def align_forward(car, delta_x=0.2, delta_y=None, sort_pos=(0.2, 0), time_out=4.
                 out_x = 0.0
             out_y = 0.0 if delta_y is None else kp_y * (dy - delta_y)
 
-            flag_x = x_count(abs(dx) < 0.06)
+            flag_x = x_count(abs(err_x) < 0.06)
             flag_y = y_count(abs(dy) < 0.02) if delta_y is not None else True
             if flag_x:
                 out_x = 0

@@ -135,17 +135,17 @@ TASK_TRIGGER: Dict[str, Dict] = {
         "type": "vision",
         "labels": ["animal"],  # 识别到动物即触发
         "min_score": 0.9,
-        "confirm": 20,
+        "confirm": 10,
         "fresh": False,
         "max_age": 0.3,
-        "max_run": 30.8,
+        "max_run": 500.0,
         "time_out": 300.0,
-        "start_dist": 0.0,
+        "start_dist": 5.0,
         "lane": {  # 本路段巡线特调(每任务独立, 跑完自动还原)
-            "kp": 4.5,
+            "kp": 2.5,
             "kd": 0.0,
             "deadzone": 0.0,
-            "v_forward": 0.6,
+            "v_forward": 0.4,
         },
     },
     "harvesting": {
@@ -155,8 +155,8 @@ TASK_TRIGGER: Dict[str, Dict] = {
         "confirm": 3,
         "fresh": False,
         "max_age": 0.3,
-        "max_run": 3.0,
-        "time_out": 30.0,
+        "max_run": 5.0,
+        "time_out": 300.0,
         "start_dist": 0.0,
         "lane": {  # 本路段巡线特调(每任务独立, 跑完自动还原)
             "kp": 3.4,
@@ -176,7 +176,7 @@ TASK_TRIGGER: Dict[str, Dict] = {
         "fresh": False,
         "max_age": 0.3,
         "max_run": 2.5,
-        "time_out": 25.0,
+        "time_out": 250.0,
         "start_dist": 0.0,
         "lane": {  # 本路段巡线特调(每任务独立, 跑完自动还原)
             "kp": 3.5,
@@ -192,8 +192,8 @@ TASK_TRIGGER: Dict[str, Dict] = {
         "confirm": 3,
         "fresh": False,
         "max_age": 0.3,
-        "max_run": 3.8,
-        "time_out": 30.0,
+        "max_run": 1.8,
+        "time_out": 300.0,
         "start_dist": 0.0,
         "lane": {  # 本路段巡线特调(每任务独立, 跑完自动还原)
             "kp": 5.0,

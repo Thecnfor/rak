@@ -1,5 +1,6 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
+import math
 import os
 import sys
 import threading
@@ -19,6 +20,7 @@ from smartcar.whalesbot.vehicle.base.controller_wrap import PoutD
 
 from .motion import MotionMixin
 from .perception import PerceptionMixin
+from .global_pose import GlobalPose
 from . import cfg as tasks_cfg
 
 
@@ -77,6 +79,10 @@ class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
         self.thread_key.daemon = True
         self.thread_key.start()
 
+        # 全局坐标层: 维护"里程计系 -> 场地系"变换, reset_position 不丢全局位姿
+        # (详见 tasks/tools/global_pose.py; 锚定用 set_field_origin)
+        self.global_pose = GlobalPose(odom_getter=self.get_odometry)
+
         self.beep()
 
     def beep(self):
@@ -86,6 +92,65 @@ class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
         控制蜂鸣器发出一声蜂鸣音，并等待0.2秒。
         """
         self.ring.rings()
+
+    # ==================================================================
+    # 全局坐标层接口(场地坐标系)
+    # ==================================================================
+    def set_field_origin(self, x=0.0, y=0.0, theta=0.0):
+        """锚定场地坐标系: 声明"车此刻在场地 (x, y, theta)".
+
+        典型用法: 把车摆到场地出发点并摆正朝向后, 调 set_field_origin(0, 0, 0),
+        此后 get_global_pose() 即为场地坐标; 也可在识别到已知地标时用
+        地标的真实场地坐标调用, 修正里程计漂移。
+        """
+        self.global_pose.anchor([x, y, theta])
+
+    def get_global_pose(self) -> list:
+        """读当前场地系位姿 [x, y, theta] (米/弧度). 不受 reset_position 影响."""
+        return self.global_pose.to_global(self.get_odometry())
+
+    def get_global_odometry_str(self) -> str:
+        """场地系位姿可读串(x.x, y.y m / deg), 用于日志/屏幕显示."""
+        gx, gy, gth = self.get_global_pose()
+        return "global[{:+.2f},{:+.2f}m {:+.0f}deg]".format(
+            gx, gy, math.degrees(gth)
+        )
+
+    def go_to_global_pose(
+        self, target_global, max_velocities=None, tolerance=None, timeout=30.0
+    ) -> bool:
+        """按场地坐标闭环导航到 target_global [x, y, theta](米/弧度).
+
+        换算回里程计系后走底层 move_to_position(带 PID 闭环/最短转向),
+        返回是否收敛。中途 reset_position 也没关系(每次迭代重读变换)。
+        """
+        target_odom = self.global_pose.to_odom(
+            [float(target_global[0]), float(target_global[1]), float(target_global[2])]
+        )
+        try:
+            self.move_to_position(
+                target_odom,
+                None,
+                max_velocities or [0.2, 0.2, math.pi / 3],
+                tolerance or [0.004, 0.004, 0.02],
+                timeout,
+            )
+        except Exception as e:
+            logger.warning(f"go_to_global_pose 异常: {e}")
+            return False
+        return True
+
+    def reset_position(self, x=0, y=0, z=0.0, distance=0):
+        """覆写底盘 reset_position: 先保全全局坐标再清零里程计.
+
+        车没动、只是坐标系被清, 所以全局位姿必须连续 —— 用 reset 前的
+        位姿算出全局值, 再以 reset 后的新坐标系重锚回去。此后
+        get_global_pose() 返回值与 reset 前一致(不跳变)。
+        """
+        old_odom = self.get_odometry()
+        super().reset_position(x, y, z, distance)
+        self.global_pose.on_odom_reset(old_odom, [float(x), float(y), float(z)])
+
 
     def sensor_init(self, cfg):
         """
@@ -135,19 +200,23 @@ class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
         time.sleep(0.2)
 
         t0 = time.time()
-        self.shoot.set(1)                    # 继电器吸合 → 电磁铁得电
+        self.shoot.set(1)  # 继电器吸合 → 电磁铁得电
         time.sleep(max(pulse_seconds, 0.001))
-        self.shoot.set(0)                    # 继电器断开 → 复位
+        self.shoot.set(0)  # 继电器断开 → 复位
         elapsed = time.time() - t0
 
         time.sleep(0.2)
         self.beep()  # 击发后蜂鸣, 提示完成
-        logger.info("shooting() done: pulse={:.0f}ms, actual={:.0f}ms".format(
-            pulse_seconds * 1000, elapsed * 1000
-        ))
-        print("[shooting] 脉冲 {:d}ms → 实际通电 {:.0f}ms".format(
-            int(pulse_seconds * 1000), elapsed * 1000
-        ))
+        logger.info(
+            "shooting() done: pulse={:.0f}ms, actual={:.0f}ms".format(
+                pulse_seconds * 1000, elapsed * 1000
+            )
+        )
+        print(
+            "[shooting] 脉冲 {:d}ms → 实际通电 {:.0f}ms".format(
+                int(pulse_seconds * 1000), elapsed * 1000
+            )
+        )
 
     def car_pid_init(self, cfg):
         """
