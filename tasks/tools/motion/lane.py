@@ -177,7 +177,8 @@ class LaneMixin:
 
         self.lane_base(speed, end_fuction, stop=stop)
 
-    def lane_dis_offset(self, speed, dis_hold, stop=STOP_PARAM):
+    def lane_dis_offset(self, speed, dis_hold, stop=STOP_PARAM,
+                        kp=None, ki=None, kd=None, limits=None, deadzone=None):
         """
         车道保持距离偏移方法
 
@@ -187,7 +188,25 @@ class LaneMixin:
             speed: 行驶速度
             dis_hold: 距离偏移量
             stop: 是否在结束后停止车辆，默认为STOP_PARAM
+            kp/ki/kd/limits: 本段专用的转向 PID 参数, 直接覆盖共享的
+                lane_pid_angle(Kp/Ki/Kd/output_limits); 不传则沿用现有值
+            deadzone: 本段专用的转向死区, 直接覆盖 _lane_deadzone; 不传则沿用
+
+        注意: 覆盖后不恢复原状(与 lane_config 不同)——lane_dis_offset 用于
+        整条巡线最后一段, 结束后不再有需要原参数的巡线, 省去还原开销。
         """
+        # 单独覆盖本次巡线的转向 PID / 死区(不还原, 见 docstring)
+        if kp is not None:
+            self.lane_pid_angle.Kp = kp
+        if ki is not None:
+            self.lane_pid_angle.Ki = ki
+        if kd is not None:
+            self.lane_pid_angle.Kd = kd
+        if limits is not None:
+            self.lane_pid_angle.output_limits = limits
+        if deadzone is not None:
+            self._lane_deadzone = deadzone
+
         dis_start = self.get_distance()
         dis_stop = dis_start + dis_hold
         self.lane_dis(speed, dis_stop, stop=stop)

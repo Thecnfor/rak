@@ -430,11 +430,12 @@ class LocateMixin:
         label,
         cx=0.0,
         cy=0.0,
-        kp=(0.10, 0.10),
+        kp=(0.10, 0.04),
         sign=(-1.0, 1.0),
         deadband=0.05,
         hold=6,
         v_max=0.12,
+        v_min=0.01,
         decouple_xy=True,
         timeout=7.0,
         max_age=0.5,
@@ -497,7 +498,7 @@ class LocateMixin:
                 lost_frames += 1
                 in_band = 0
                 # 连丢 2 帧后按上次命令反向慢拉回, 避免"找到↔丢帧"来回晃
-                if (lost_frames == 2 and (last_vx != 0.0 or last_vy != 0.0)):
+                if (lost_frames == 5 and (last_vx != 0.0 or last_vy != 0.0)):
                     vx, vy = -last_vx * 0.25, -last_vy * 0.25
                 else:
                     vx, vy = 0.0, 0.0
@@ -540,6 +541,11 @@ class LocateMixin:
             # v_max 限幅
             vx = max(-v_max, min(v_max, vx))
             vy = max(-v_max, min(v_max, vy))
+
+            if abs(vx) < v_min:
+                vx = 0.0
+            if abs(vy) < v_min:
+                vy = 0.0
 
             if abs(cx_err) < deadband and abs(cy_err) < deadband:
                 in_band += 1

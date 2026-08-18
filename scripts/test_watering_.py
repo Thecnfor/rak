@@ -40,14 +40,14 @@ ARM_SHELF = +93   # 4_car +90: 朝置物架侧 (抓块)
 ARM_TOWER = -93   # 4_car -96: 朝水塔侧 (识别/投放)
 
 # ----- 姿态 (mm → m /1000) -----
-DETECT_POSE  = dict(x=-0.200, y=-0.150, arm=ARM_TOWER, hand=-50)  # 进塔/识别前姿态 (4_car -60 现场+10)
+DETECT_POSE  = dict(x=-0.200, y=-0.150, arm=ARM_TOWER, hand=-60)  # 进塔/识别前姿态 (4_car -60 现场+10)
 DETECT_Y     = -0.010                        # 识别时 y 降到检测高度
 PICK_POSE_Y  = -0.150                        # 抓块姿态 y (servo_y)
 PICK_HAND    = 0                             # 抓块姿态手爪 (4_car -10 现场+10)
 FIRST_CUBE_X, SECOND_CUBE_X = -0.145, -0.220 # 每块组内 第1/第2 块 X
 GRASP_Y, LIFT_Y = -0.050, -0.150             # 吸块下降 y / 吸完抬回 y
 DELIVER_Y    = [-0.010, -0.045, -0.085]      # 放块第1/2/3层 y (梯度)
-DELIVER_HAND = [-70, -75, -75]               # 放块第1/2/3层手爪 (4_car -80/-85/-85 现场+10)
+DELIVER_HAND = [-80, -85, -85]               # 放块第1/2/3层手爪 (4_car -80/-85/-85 现场+10)
 CARRY_X      = [[-0.060, -0.055, -0.055],
                 [-0.060, -0.055, -0.055]]    # 每塔每块放块 X (m)
 
@@ -59,12 +59,12 @@ SAFE_X, SAFE_Y = -0.200, -0.150
 #   TRACK: kp_x=0=横向锁死, kp_y=0.22=只前后; sign_y=+1=前后方向(目标左→前进; 现场定, 反则正反馈越追越偏)
 TRACK = dict(                                   # 底盘对齐水塔 (只前后)
     cx=0.142, cy=0.183, kp=(0.0, 0.22),
-    sign=(1.0, 1.0), deadband=0.02, hold=6,
+    sign=(1.0, 1.0), deadband=0.04, hold=6,
     v_max=0.11, timeout=15.0,
 )
 PICK = dict(                                    # 机械臂伺服抓水块
-    cx=0.098, cy=-0.398, gains=(0.1, 0.1),
-    sign=(-1.0, 1.0), deadzone=0.03, settle=6,   # 大臂-1/滑轨+1 (跟 seeding 抓取一致)
+    cx=0.098, cy=-0.398, gains=(0.1, 0.05),
+    sign=(-1.0, -1.0), deadzone=0.04, settle=6,   # 大臂-1/滑轨+1 (跟 seeding 抓取一致)
     timeout=15.0,
 )
 

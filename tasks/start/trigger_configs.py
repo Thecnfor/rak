@@ -61,15 +61,15 @@ TASK_TRIGGER: Dict[str, Dict] = {
     # ================= 里程计触发 =================
     "seeding": {
         "type": "odometer",  # 触发类型: odometer=按行驶距离触发 / vision=视觉识别触发
-        "distance": 0.95,  # 累计行驶距离(米) >= 该值即触发 (仅 odometer 用)
+        "distance": 0.87,  # 累计行驶距离(米) >= 该值即触发 (仅 odometer 用)
         "max_run": 1.5,  # 兜底: 最多再行驶这么远(米), 防止触发条件永远不满足而一直开
         "time_out": 0.0,  # 兜底: 超时(秒)强制停, 0=不启用
         "start_dist": 0.0,  # 先行驶多少米后才开始检查触发条件 (0=一开始就检查)
         "lane": {  # 本路段巡线特调(每任务独立, 跑完自动还原)
-            "kp": 3,  # 转向 PID Kp: 弯道转不过来加大 / 直道蛇形减小
+            "kp": 1,  # 转向 PID Kp: 弯道转不过来加大 / 直道蛇形减小
             "kd": 0.0,  # 转向 PID Kd(阻尼): 摆动大加大 / 转向迟钝减小
             "deadzone": 0.0,  # da 进 PID 前死区: 直线仍抖加大
-            "v_forward": 0.40,  # 恒速前进速度(m/s), 不填则回落公共默认 speed 0.3
+            "v_forward": 0.50,  # 恒速前进速度(m/s), 不填则回落公共默认 speed 0.3
         },
     },
     "ordering": {
@@ -125,27 +125,27 @@ TASK_TRIGGER: Dict[str, Dict] = {
         "time_out": 300.0,
         "start_dist": 0.0,
         "lane": {  # 本路段巡线特调(每任务独立, 跑完自动还原)
-            "kp": 2.5,
+            "kp": 2,
             "kd": 0.0,
             "deadzone": 0.0,
-            "v_forward": 0.4,
+            "v_forward": 0.5,
         },
     },
     "shooting": {
         "type": "vision",
         "labels": ["animal"],  # 识别到动物即触发
-        "min_score": 0.9,
+        "min_score": 0.7,
         "confirm": 10,
         "fresh": False,
         "max_age": 0.3,
         "max_run": 500.0,
         "time_out": 300.0,
-        "start_dist": 5.0,
+        "start_dist": 1.5,
         "lane": {  # 本路段巡线特调(每任务独立, 跑完自动还原)
-            "kp": 2.5,
+            "kp": 2,
             "kd": 0.0,
             "deadzone": 0.0,
-            "v_forward": 0.4,
+            "v_forward": 0.6,
         },
     },
     "harvesting": {

@@ -34,8 +34,8 @@ MARKER_NOZZLE = (0.0, -0.331)
 #    注: 现场实测发 0 只到 -10, 末端"竖直向下"按 +10 上标(PICK/PLACE/_ensure_hand 均用 +10)。
 #    尺寸→槽(重要): cylinder_3=最大筒→槽1(最近), cylinder_2=中筒→槽2,
 #    cylinder_1=最小筒→槽3(最远); 即槽列位置从近到远 1/2/3 对应 大/中/小。
-PICK_POSE = dict(x=-0.05, y=-0.15, arm=-90, hand=10)
-PLACE_POSE = dict(x=-0.2, y=-0.15, arm=93, hand=10)  # 机械臂预对位基准/放苗兜底
+PICK_POSE = dict(x=-0.05, y=-0.15, arm=-90, hand=-10)
+PLACE_POSE = dict(x=-0.21, y=-0.15, arm=93, hand=-10)  # 机械臂预对位基准/放苗兜底
 CHASSIS_ALIGN_X = -0.26  # 仅底盘对齐阶段: 滑轨放更外侧, 便于把槽标拉进画面中心
 GRASP_Y, LIFT_Y = 0.0, -0.15  # 降至最底(0)吸 / 抬回(-0.15)
 PLACE_Y, PLACE_LIFT_Y = -0.02, -0.15  # 放苗微降 / 释放后一步抬到 -0.15
@@ -48,10 +48,10 @@ MOVE_V = 0.1  # 底盘平移限速, 降漂移
 # sign 按现场最终确认双表全反(目标在左→该摆向RIGHT、目标在上→该左伸/右缩),
 # 现用值: PICK(-1,1), PLACE(-1,-1), 对齐超时 10s。debug=True 待收敛确认后再删。
 PICK_SERVO = dict(
-    gains=(0.2, 0.1), sign=(-1.0, 1.0), deadzone=0.02, timeout=15.0, debug=True
+    gains=(0.25, 0.15), sign=(-1.0, 1.0), deadzone=0.02, timeout=15.0, debug=True
 )
 PLACE_SERVO = dict(
-    gains=(0.2, 0.1), sign=(-1.0, -1.0), deadzone=0.03, timeout=15.0, debug=True
+    gains=(0.25, 0.15), sign=(-1.0, -1.0), deadzone=0.03, timeout=15.0, debug=True
 )
 
 
@@ -60,7 +60,7 @@ def _has(car, label, max_age=0.3):
     return any(d[2] == label for d in car.get_realtime_detections(max_age=max_age))
 
 
-def _ensure_hand(car, target=10.0, retries=3, settle=0.5):
+def _ensure_hand(car, target=-10.0, retries=3, settle=0.5):
     """视觉对齐前强制末端手爪到位: 舵机无位置回读(只能发不能读),
     故以"连发命令+等舵机到位时间+重试"覆盖丢帧/大电流复位场景,
     保证手爪确实在 target 角度再开始对齐/抓取。"""
@@ -70,10 +70,16 @@ def _ensure_hand(car, target=10.0, retries=3, settle=0.5):
 
 
 def _pick(car, label):
+    """抓 cylinder_1/2/3: 右臂对齐吸嘴到筒正上方 → 下放吸起.
+
+    对齐超时未收敛也不中断任务: 打印告警后仍按当前臂位继续下放抓取
+    (NOZZLE setpoint 已标定, 未收敛多半只是差几个死区, 硬抓成功率更高)。
+    """
     _ensure_hand(car)  # ① 视觉对齐前: 强制末端到位
     # 右臂对齐 cylinder_1/2/3(抓取): 锁定画面靠右的目标
-    if not car.arm_servo_align(label, *NOZZLE[label], prefer_right=True, **PICK_SERVO):
-        raise RuntimeError(f"pick {label} 未收敛")
+    ok = car.arm_servo_align(label, *NOZZLE[label], prefer_right=True, **PICK_SERVO)
+    if not ok:
+        print(f"[抓取] {label} 对齐未收敛, 继续按当前位下放抓取")
     _ensure_hand(car)  # ② 抓取前再兜底: 滑轨/Y 大电流移动可能又把舵机打回 -90
     car.arm.move_y_position(GRASP_Y)
     car.arm.grasp(True)

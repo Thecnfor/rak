@@ -149,7 +149,7 @@ class ArmController(ArmMotion):
         try:
             self.reset_y()  # 0点: 下降撞限位, 该位置为 Y 轴 0 点(y_pose_now=0)
         finally:
-            self.move_y_position(-0.1)
+            self.move_y_position(-0.05)
         print("开始重置水平方向位置")
         self.reset_x()  # 0点: 向右撞墙到头, 该位置为 X 轴 0 点(x_pose_now=0)
         print("重置位置完成")
@@ -279,19 +279,15 @@ class ArmController(ArmMotion):
 
         """
         self.goto_position(x, y)
-        # 总线避让+重发兜底: XY 运动刚停时总线仍被电机帧占满, 立即发舵机帧
-        # 大概率被挤掉(实测手爪停在 -90 不落地)。先安静 50ms 再发; 到位后隔
-        # 0.2s 重发一次(舵机重复收同角度无副作用), 保证至少一帧落在空窗。
-        time.sleep(0.05)
+        # 大臂: 发送后等 1s 让总线安静, 再重发一次兜底(17449ff 修复"大臂概率不动"的
+        # 逻辑; 半双工 MC602 总线被 X/Y 电机帧 + 里程计后台 50Hz 轮询占用,
+        # 单帧大臂命令紧跟 goto_position 后发易被挤掉)。手爪硬件已修复, 用异步发。
         if arm is not None:
             self.set_arm_angle(arm)
-        if hand is not None:
-            self.set_hand_angle(hand)
-        time.sleep(0.2)
-        if arm is not None:
+            time.sleep(1)
             self.set_arm_angle(arm)
         if hand is not None:
-            self.set_hand_angle(hand)
+            self.set_hand_angle_async(hand)
 
     # ==================== 便捷属性接口 ====================
     @property

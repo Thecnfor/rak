@@ -69,7 +69,7 @@ def main():
         #         ordering -> delivery(order_list); 上游被跳过时回落任务默认值
         orch.run_all(
             auto_run_task=True,
-            wait_start=True,
+            wait_start=False,
             allow_restart=True,
             task_kwargs={
                 "shooting": {

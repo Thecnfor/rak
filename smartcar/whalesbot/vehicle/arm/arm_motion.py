@@ -23,7 +23,9 @@ from ...tools import get_yaml, limit_val, CountRecord, PID, logger
 from .. import MotorWrap, StepperWrap, AnalogInput
 
 # 位置误差阈值(判定到达目标) - 硬件标定值
-POSITION_ERROR_THRESHOLD = 4e-4
+# 4e-4(0.4mm)严于 X/Y 电机机械分辨率(实测 X 卡 0.5mm 残差导致 goto_position
+# 永不收敛拖到 Timeout); 放宽到 1e-3(1mm), 与 Y_DEADZONE 一致。
+POSITION_ERROR_THRESHOLD = 1e-3
 # Y 轴输出死区: 误差小于该值(m)直接停电机, 避免到位后微小速度来回摆动
 Y_DEADZONE = 1e-3
 # 停止检测阈值 - 硬件标定值
