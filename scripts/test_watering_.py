@@ -56,10 +56,10 @@ SAFE_X, SAFE_Y = -0.200, -0.150
 
 # ----- 视觉伺服参数 (现场校准) -----
 #   kp=(左右增益, 前后增益); sign=(左右符号, 前后符号)。
-#   TRACK: kp_x=0=横向锁死, kp_y=0.22=只前后; sign_y=-1=前后方向(反则"只后退", 现场定)
+#   TRACK: kp_x=0=横向锁死, kp_y=0.22=只前后; sign_y=+1=前后方向(目标左→前进; 现场定, 反则正反馈越追越偏)
 TRACK = dict(                                   # 底盘对齐水塔 (只前后)
     cx=0.142, cy=0.183, kp=(0.0, 0.22),
-    sign=(1.0, -1.0), deadband=0.02, hold=6,
+    sign=(1.0, 1.0), deadband=0.02, hold=6,
     v_max=0.11, timeout=15.0,
 )
 PICK = dict(                                    # 机械臂伺服抓水块
@@ -135,16 +135,26 @@ def _detect_water_num(car, timeout=1.0):
     return 0, None
 
 
+def _ensure_hand(car, target, retries=3, settle=0.5):
+    """末端 PWM 舵机无位置回读(只能发不能读), 以连发命令+等舵机到位时间+重试,
+    覆盖丢帧/大电流复位, 确保末端确实在 target 角度再继续。
+    (现场: 只发一次时常停在半路约 -40 未到位)"""
+    for _ in range(retries):
+        car.arm.set_hand_angle(target)
+        time.sleep(settle)
+
+
 def _servo_pick(car):
     """车不动, 机械臂视觉伺服把水块对齐到 setpoint(0.098,-0.398) → 下探吸 → 抬回."""
+    _ensure_hand(car, PICK_HAND)          # 对齐前: 末端强制到位(抓块姿 0°)
     car.arm_servo_align(TARGET_WATER, cx=PICK["cx"], cy=PICK["cy"],
                         gains=PICK["gains"], sign=PICK["sign"],
                         deadzone=PICK["deadzone"], settle=PICK["settle"],
                         timeout=PICK["timeout"])
-    car.arm.set_hand_angle(10)             # 下降时手爪转朝下 (4_car descend_hand=0 现场+10)
-    car.arm.move_y_position(GRASP_Y)       # 降到水块高度
-    car.arm.grasp(True)                    # 吸气吸住
-    car.arm.move_y_position(LIFT_Y)        # 抬回运输高度
+    _ensure_hand(car, 10)                 # 下降前: 末端转朝下 (+10, 现场标定)
+    car.arm.move_y_position(GRASP_Y)      # 降到水块高度
+    car.arm.grasp(True)                   # 吸气吸住
+    car.arm.move_y_position(LIFT_Y)       # 抬回运输高度
 
 
 def run_one_tower(car, tower_idx):
@@ -171,6 +181,7 @@ def run_one_tower(car, tower_idx):
         _chassis(car, pos, 0.0)                          # 底盘回塔
         _arm_to(car, CARRY_X[tower_idx][k], DELIVER_Y[k],
                 ARM_TOWER, DELIVER_HAND[k])              # 切投放(朝水塔, 梯度深度)
+        _ensure_hand(car, DELIVER_HAND[k])               # 投放前: 末端强制到位
         car.arm.grasp(False)                             # 放气投放
         car.beep()
 
