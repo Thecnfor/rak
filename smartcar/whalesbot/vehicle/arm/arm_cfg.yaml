@@ -24,13 +24,13 @@ horiz_cfg:
     type: motor_280
     perimeter: 0.032
   pid:
-    Kp: 6
+    Kp: 3
     Ki: 0
-    Kd: 0
+    Kd: 0.02
     setpoint: 0
     output_limits:
-    - -0.2
-    - 0.2
+    - -0.15
+    - 0.15
   threshold:
   - -0.315
   - 0
@@ -43,13 +43,13 @@ vert_cfg:
     perimeter: 0.008
   limit_port: 5
   pid:
-    Kp: 3
+    Kp: 1.5
     Ki: 0
     Kd: 0
     setpoint: 0
     output_limits:
-    - -0.6
-    - 0.6
+    - -0.4  
+    - 0.4
   threshold:
   - -0.2
   - 0

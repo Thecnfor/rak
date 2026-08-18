@@ -77,14 +77,34 @@ car.close()   # 关按键线程 / 摄像头 / 流媒体（写独立脚本务必�
 | `car.move_x(mm)` / `car.move_y(mm)` / `car.move_z(deg)` | 相对移动 / 旋转 |
 | `car.offset.x += 100` / `car.offset.y -= 50` / `car.offset.z += 90` | 相对偏移（x/y 为 mm，z 为度） |
 
-### 1.3 坐标变换
+### 1.3 全局坐标层（场地坐标系，reset 安全）
+
+> 里程计 `reset_position` 会清零（启动 / sorting 钩子都会清），"车在场地哪里"因此丢失。
+> 全局坐标层在里程计之上维护一个**场地坐标系**：`car.global_pose`（`GlobalPose`）单独保存
+> "里程计系 → 场地系"的 SE(2) 变换，里程计清零时自动重锚，全局位姿**保持连续不跳变**。
+> 实现见 `tasks/tools/global_pose.py`。
+
+| 方法 | 说明 |
+|---|---|
+| `car.set_field_origin(x=0, y=0, theta=0)` | 锚定场地系：声明"车此刻在场地 (x, y, theta)"。出发时摆正后调 `set_field_origin(0,0,0)` 即可；识别到已知地标时也可用地标真实坐标调用修正漂移 |
+| `car.get_global_pose() -> [x, y, theta]` | 读当前场地系位姿（m / rad），**不受 reset_position 影响** |
+| `car.get_global_odometry_str()` | 场地位姿可读串（`global[+1.20,+1.50m +90deg]`），日志/屏幕用 |
+| `car.go_to_global_pose(target, max_velocities=None, tolerance=None, timeout=30.0) -> bool` | 按场地坐标闭环导航到 `[x, y, theta]`；换算回里程计系走底层 `move_to_position`（PID 闭环 + 最短转向），返回是否收敛 |
+| `car.global_pose.anchor([x,y,theta], odom_pose=None)` | 底层重锚接口（`set_field_origin` 即其封装） |
+| `car.global_pose.to_global(odom) / to_odom(global)` | 两坐标系位姿互转 |
+
+> 注意：无 IMU，theta 靠轮式积分，麦轮打滑会累积漂移；长途任务后建议配合视觉对齐
+> （`chassis_align`）或重新 `set_field_origin` 修正。`MyCar.reset_position` 已覆写为
+> "先保全全局坐标再清零"，现有调用方（`create_car` / sorting 钩子）行为不变、无感升级。
+
+### 1.4 坐标变换
 
 | 方法 | 说明 |
 |---|---|
 | `car.world_to_car_velocity(vel_world, angle_car)` | 世界系速度 → 车体系 |
 | `car.car_to_world_velocity(vel_car, angle_car)` | 车体系速度 → 世界系 |
 
-### 1.4 PID 位姿控制（闭环，推荐直线 / 定点）
+### 1.5 PID 位姿控制（闭环，推荐直线 / 定点）
 
 > `move_to_position / move_for / offset_by` 是 **带 x/y/yaw 三路 PID 的闭环**控制（基于里程计），
 > 相比 `set_velocity` 开环直走能自动修正跑偏，是"直行 / 到点"的最稳方式。
@@ -98,7 +118,7 @@ car.close()   # 关按键线程 / 摄像头 / 流媒体（写独立脚本务必�
 > 任务里 `car.move_to_position([x, y, z])` 是"走到某个场上坐标"最常用的接口。
 > `move_for([x, y, 0])` / `offset_by([x_mm, y_mm, z_deg])` 则适合"相对当前位置直走 / 横移 / 转向"。
 
-### 1.5 底盘内部对象（一般无需直接操作）
+### 1.6 底盘内部对象（一般无需直接操作）
 
 `car.chassis`（MecanumChassis）与 `car.chassis.odometry`（Odometry）提供运动学与位姿数据：
 
@@ -116,7 +136,7 @@ car.close()   # 关按键线程 / 摄像头 / 流媒体（写独立脚本务必�
 > 里程计由后台 `update_odometry_thread` 以 ~50Hz 异步更新（`get_linear_async` 读编码器差分），
 > 通过 `car._lock` 保护；`get_odometry/get_distance` 已带锁，任务层直接用即可。
 
-### 1.6 生命周期
+### 1.7 生命周期
 
 | 方法 | 说明 |
 |---|---|
@@ -125,7 +145,7 @@ car.close()   # 关按键线程 / 摄像头 / 流媒体（写独立脚本务必�
 
 ---
 
-### 1.7 补充工具（smartcar 顶层已导出，可直接 import）
+### 1.8 补充工具（smartcar 顶层已导出，可直接 import）
 
 `MyCar` 已继承了底层全部能力，任务一般无需直接 import 下列工具；它们与 `tasks/tools` 里的自定义封装可互相替代，统一从 `smartcar` 导入即可：
 

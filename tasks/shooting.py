@@ -25,23 +25,20 @@ def run(car, animal_list=None):  # noqa: E741
 
     # 射击任务
     car.arm.set_arm_pose(arm="LEFT", hand="UP")
-    car.arm.set_arm_pose(x=-0.15, y=-0.15)
-
-    car.lane_dis_offset(speed=0.3, dis_hold=3.0)
-    car.move_for([-0.2, 0, 0])
+    car.arm.set_arm_pose(x=-0.25, y=-0.04)
     # 对齐第一个目标
     car.move_to_detection_target(delta_x=d_x, delta_y=None, sort_pos=(d_x, 0))
 
     for dis in relative_loc:
-        car.lane_dis_offset(speed=0.3, dis_hold=dis)
+        car.lane_dis_offset(speed=0.2, dis_hold=dis)
         cls_id, label = car.move_to_detection_target(
             delta_x=d_x, delta_y=None, sort_pos=(d_x, 0)
         )
-        time.sleep(5)
+        time.sleep(1)
         car.beep()
         car.shooting()
-        time.sleep(5)
+        time.sleep(1)
 
     car.lane_dis_offset(
-        speed=0.3, dis_hold=0.48 - sum(relative_loc)
+        speed=0.2, dis_hold=0.48 - sum(relative_loc)
     )  # 距离补偿到最后一个目标
