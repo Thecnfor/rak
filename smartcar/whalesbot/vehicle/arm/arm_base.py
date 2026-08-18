@@ -279,7 +279,15 @@ class ArmController(ArmMotion):
 
         """
         self.goto_position(x, y)
-        # time.sleep(0.2)
+        # 总线避让+重发兜底: XY 运动刚停时总线仍被电机帧占满, 立即发舵机帧
+        # 大概率被挤掉(实测手爪停在 -90 不落地)。先安静 50ms 再发; 到位后隔
+        # 0.2s 重发一次(舵机重复收同角度无副作用), 保证至少一帧落在空窗。
+        time.sleep(0.05)
+        if arm is not None:
+            self.set_arm_angle(arm)
+        if hand is not None:
+            self.set_hand_angle(hand)
+        time.sleep(0.2)
         if arm is not None:
             self.set_arm_angle(arm)
         if hand is not None:

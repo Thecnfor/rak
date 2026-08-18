@@ -376,8 +376,11 @@ class LocateMixin:
                     return True
             else:
                 hits = 0
-                self.arm.set_arm_angle(self.arm.angle + sign_cx * gain_cx * e_cx)
-                self.arm.x_speed(sign_cy * gain_cy * e_cy)
+                # 异步发帧(不阻塞等回包): XY 舵机同一条 MC602 总线, 同步发帧
+                # 在电机刷屏时极易被挤掉(实测手爪/大臂概率不动); 异步走 submit
+                # 排队, 掉帧率大降。
+                self.arm.set_arm_angle_async(self.arm.angle + sign_cx * gain_cx * e_cx)
+                self.arm.x_speed_async(sign_cy * gain_cy * e_cy)
                 if debug:
                     print(f"  [{label}] px={px:+.3f} py={py:+.3f} e_cx={e_cx:+.3f} e_cy={e_cy:+.3f}"
                           f" → 臂{sign_cx * gain_cx * e_cx:+.2f}° 滑轨{sign_cy * gain_cy * e_cy:+.4f}m/s")
