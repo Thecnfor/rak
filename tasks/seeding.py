@@ -43,8 +43,8 @@ MOVE_V = 0.1  # 底盘平移限速, 降漂移
 # gain_cy 曾按 50 倍放小到 0.003/0.004(7s 内滑轨几乎不动), 恢复为 0.1。
 # sign 按现场最终确认双表全反(目标在左→该摆向RIGHT、目标在上→该左伸/右缩),
 # 现用值: PICK(-1,1), PLACE(-1,-1), 对齐超时 10s。debug=True 待收敛确认后再删。
-PICK_SERVO = dict(gains=(0.2, 0.1), sign=(-1.0, 1.0), deadzone=0.02, timeout=10.0, debug=True)
-PLACE_SERVO = dict(gains=(0.2, 0.1), sign=(-1.0, -1.0), deadzone=0.03, timeout=10.0, debug=True)
+PICK_SERVO = dict(gains=(0.2, 0.1), sign=(-1.0, 1.0), deadzone=0.02, timeout=15.0, debug=True)
+PLACE_SERVO = dict(gains=(0.2, 0.1), sign=(-1.0, -1.0), deadzone=0.03, timeout=15.0, debug=True)
 
 
 def _has(car, label, max_age=0.3):
@@ -101,7 +101,7 @@ def _pre_align(car):
     time.sleep(0.5)
     car.arm.set_hand_angle(PLACE_POSE["hand"])
     time.sleep(0.5)
-    ok_chassis = car.chassis_align(MARKER, timeout=10.0)  # 车动, 槽标记居中; 10s 内一直检索, 不提前放弃
+    ok_chassis = car.chassis_align(MARKER, timeout=10.0)  # 车动, 槽标记居中; 15s 内一直检索, 不提前放弃
     # 底盘对齐轮系高频占总线, 手爪可能又被挤回, 补发一次
     car.arm.set_hand_angle(PLACE_POSE["hand"])
     print(f"底盘对齐槽标记: {'成功' if ok_chassis else '超时/未对齐, 继续预对位'}")
