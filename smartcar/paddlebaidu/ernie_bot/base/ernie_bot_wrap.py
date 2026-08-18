@@ -7,6 +7,22 @@ import yaml
 import base64
 from openai import OpenAI
 
+# 兜底 prompt(仅当 tasks/llm_config.yml 缺失时使用)
+DEFAULT_PEST_PROMPT = '''你是一个动物识别专家，需要根据输入的图片识别动物种类，并判断该动物是对农田有害动物还是有益动物。
+严格按照下面的scheame描述生成给定格式json，只返回json数据:
+输出要求（严格遵守）：
+- 必须返回一个 JSON 对象，不要包含任何 Markdown 标记（如 ```json）或其他解释文字。
+- JSON 必须包含以下两个字段：
+1. "analysis": (字符串类型) 描述你的分析过程，包括你识别出了什么动物，以及判断它有益/有害的理由。
+2. "result": (整数类型) 如果是有害动物，返回数字 0；如果是有益动物，返回数字 1。
+
+JSON 格式示例：
+{
+    "result": 1,
+    "analysis": "图片中识别到的动物是一只蜜蜂，蜜蜂可以帮助植物传粉，对农作物和生态系统有益。"
+}
+'''
+
 class PromptJson:
 	def __init__(self, rulers) -> None:
 		self.rulers_str = '请根据下面的schema描述生成给定格式json,只返回json数据,不要其他内容。'
@@ -288,27 +304,23 @@ class ErnieBotWrap():
 		# print("设置成功")
 		self.prompt_str = prompt_str
 		# print(self.prompt_str)
-	
+
+	@staticmethod
+	def llm_prompt(section, default=None):
+		"""读取 tasks/llm_config.yml 中某节的 system_prompt, 缺失时返回 default。"""
+		path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', '..', 'tasks', 'llm_config.yml')
+		try:
+			with open(path, encoding='utf-8') as f:
+				return (yaml.safe_load(f).get(section) or {}).get('system_prompt') or default
+		except (IOError, OSError, AttributeError):
+			return default
 	def get_image_res(self, image):
 		"""获取图片识别结果"""
 		
 		# base64_image  = base64.b64encode(image).decode("utf-8")
 		base64_image  = image
 
-		system_prompt = '''你是一个动物识别专家，需要根据输入的图片识别动物种类，并判断该动物是对农田有害动物还是有益动物。
-						严格按照下面的scheame描述生成给定格式json，只返回json数据:
-						输出要求（严格遵守）：
-						- 必须返回一个 JSON 对象，不要包含任何 Markdown 标记（如 ```json）或其他解释文字。
-						- JSON 必须包含以下两个字段：
-						1. "analysis": (字符串类型) 描述你的分析过程，包括你识别出了什么动物，以及判断它有益/有害的理由。
-						2. "result": (整数类型) 如果是有害动物，返回数字 0；如果是有益动物，返回数字 1。
-
-						JSON 格式示例：
-						{
-							"result": 1,
-							"analysis": "图片中识别到的动物是一只蜜蜂，蜜蜂可以帮助植物传粉，对农作物和生态系统有益。"
-						}
-					''' 
+		system_prompt = self.llm_prompt('pest_detect', DEFAULT_PEST_PROMPT)
 		self.set_promt(system_prompt)
 		messages=[
             {

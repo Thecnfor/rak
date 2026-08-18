@@ -32,4 +32,4 @@ class InferInitMixin:
         """
         self.image_analysis = ErnieBotWrap()
         self.order_analysis = ErnieBotWrap()
-        self.order_analysis.set_promt(str(OrderPrompt()))
+        self.order_analysis.set_promt(ErnieBotWrap.llm_prompt('order_read') or str(OrderPrompt()))
