@@ -40,10 +40,11 @@ MOVE_V = 0.1  # 底盘平移限速, 降漂移
 
 # ── 伺服参数(抓/放分开, 来自 4_car task_config.yml) ───────────────────
 # gain_cy 曾按 50 倍放小到 0.003/0.004(7s 内滑轨几乎不动), 恢复为 0.1。
-# sign_cy 已按现场观察反手: 原代码滑轨方向驱动反了(日志 py 越追越远)。
+# sign 按现场最终确认双表全反(目标在左→该摆向RIGHT、目标在上→该左伸/右缩),
+# 相对车上 3470eaf 的 (1,1)/(1,-1) 两个符号都取反: PICK(-1,-1), PLACE(-1,1)。
 # debug=True 待收敛确认后再删。
-PICK_SERVO = dict(gains=(0.2, 0.1), sign=(1.0, 1.0), deadzone=0.05, debug=True)
-PLACE_SERVO = dict(gains=(0.2, 0.1), sign=(1.0, -1.0), deadzone=0.06, debug=True)
+PICK_SERVO = dict(gains=(0.2, 0.1), sign=(-1.0, -1.0), deadzone=0.05, debug=True)
+PLACE_SERVO = dict(gains=(0.2, 0.1), sign=(-1.0, 1.0), deadzone=0.06, debug=True)
 
 
 def _has(car, label, max_age=0.3):
@@ -54,6 +55,10 @@ def _has(car, label, max_age=0.3):
 def _pick(car, label):
     if not car.arm_servo_align(label, *NOZZLE[label], **PICK_SERVO):
         raise RuntimeError(f"pick {label} 未收敛")
+    # 手爪兜底: 刚做完滑轨/Y 大电流移动, 舵机可能被寄回 -90(失电复位或丢帧),
+    # 抓取前确保末端在 0。
+    car.arm.set_hand_angle(0)
+    time.sleep(0.3)
     car.arm.move_y_position(GRASP_Y)
     car.arm.grasp(True)
     car.arm.move_y_position(LIFT_Y)

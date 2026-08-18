@@ -399,7 +399,7 @@ class LocateMixin:
         cx=0.0,
         cy=0.0,
         kp=(0.10, 0.10),
-        sign=(-1.0, 1.0),
+        sign=(-1.0, -1.0),
         deadband=0.05,
         hold=4,
         v_max=0.12,
@@ -416,8 +416,10 @@ class LocateMixin:
         参数:
             label:    目标类别(必填), 如 cylinder_set / h_tu_dou
             cx, cy:   期望目标中心(归一化坐标, 默认 (0,0)=画面正中心)
-            kp:       (x轴增益, y轴增益) 调灵敏度, 默认 (0.1, 0.1)
-            sign:     (x轴方向符号, y轴方向符号) 越对越偏就取反
+            kp:       (车左右增益, 车前后增益) 调灵敏度, 默认 (0.1, 0.1)
+            sign:     (车左右横移符号, 车前后符号); 注意轴交叉: 画面横向误差驱动车前后、
+                      画面纵向误差驱动车左右(侧视相机竖拍)。越对越偏就取反, 默认 (-1, -1)
+                      表示目标在画面左侧→车后退, 目标在上方→车向左。
             deadband: 两轴误差收敛死区, 默认 0.05
             hold:     进死区需连续保持的帧数(20Hz), 默认 4
             v_max:    底盘速度上限(m/s), 默认 0.12
@@ -470,6 +472,9 @@ class LocateMixin:
             lost_frames = 0
             cx_err, cy_err = cx - px, cy - py
 
+            # 轴交叉映射(重要): 侧视相机竖拍, 画面横向=场地纵深, 画面纵向=场地横向。
+            # 所以 横向误差 cx_err 驱动车前后(vy), 纵向误差 cy_err 驱动车左右(vx)。
+            # 方向: 目标在画面左侧→车后退, 目标在上方→车向左(现场确认)。
             # P 控制律: decouple_xy 每帧只驱动误差大的单轴(防对角轮打滑)
             if decouple_xy:
                 if abs(cy_err) > abs(cx_err) * 1.2 and last_axis == "x":
@@ -478,15 +483,15 @@ class LocateMixin:
                     last_axis = "x"
                 elif last_axis not in ("x", "y"):
                     last_axis = "x" if abs(cx_err) >= abs(cy_err) else "y"
-                if last_axis == "x":
-                    vx = sign_x * kp_x * cx_err
+                if last_axis == "x":          # 车左右横移 ← 画面纵向误差
+                    vx = sign_x * kp_x * cy_err
                     vy = 0.0
-                else:
+                else:                         # 车前后 ← 画面横向误差
                     vx = 0.0
-                    vy = sign_y * kp_y * cy_err
+                    vy = sign_y * kp_y * cx_err
             else:
-                vx = sign_x * kp_x * cx_err
-                vy = sign_y * kp_y * cy_err
+                vx = sign_x * kp_x * cy_err
+                vy = sign_y * kp_y * cx_err
 
             # v_max 限幅
             vx = max(-v_max, min(v_max, vx))
