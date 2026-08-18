@@ -1,111 +1,225 @@
-import time
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Task2 (watering) 浇水 ——
+
+  · 手爪刻度两车一致(UP=-90 MID=-37 DOWN=0), 4_car 度数原样搬
+  · x/y 滑轨方向两车一致(0=右/底, 负=左/上), mm→m 除以 1000 即可
+  · 大臂 4_car 度数(+90/-96) → 本仓库物理角度, 按场景映射:
+        +90(init/pick 朝置物架侧) → +93
+        -96(detection/carry 朝水塔侧) → -93
+  · 砍掉 4_car 的 3阶段安全转位/X补走校验/视觉超时重试/并发, 只留主干
+  · 底盘×机械臂全串行(单 MC602 总线防丢命令)
+  · 转大臂前 XY 先到安全位(4_car 安全区 X∈[-300,-200] Y∈[-200,-90]mm)
+运行: python tasks/watering.py    (独立自建车; 编排经 run.py 走 run(car) 同一流程)
+急停: Ctrl+C
+"""
+
+import os, sys, time, math
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from tasks.tools import create_car
+
+# ========================== 参数 (来自 4_car task_config.yml, mm→m 已换算) ==========================
+# ----- 底盘几何 -----
+TOWER_SPACING  = 0.55      # 两塔中心间距 (m)
+GROUP_FWD, GROUP_BACK = 0.35, 0.33   # 塔1向前/塔2向后 每组水块间距 (m)
+CHASSIS_V      = [0.10, 0.10, math.pi / 3]  # move_for 速度上限 [前后, 横向, 转角]
+
+# ----- 水塔等级标签 → 需搬水块数 -----
+WATER_LABEL = {"water_l1": 1, "water_l2": 2, "water_l3": 3}
+TARGET_WATER = "water"     # 视觉伺服/对齐用的目标类(水塔/水块)
+
+# ----- 大臂角度 (本仓库物理角度, 由 4_car 度数按场景映射) -----
+ARM_SHELF = +93   # 4_car +90: 朝置物架侧 (抓块)
+ARM_TOWER = -93   # 4_car -96: 朝水塔侧 (识别/投放)
+
+# ----- 姿态 (mm → m /1000) -----
+DETECT_POSE  = dict(x=-0.200, y=-0.150, arm=ARM_TOWER, hand=-60)  # 进塔/识别前姿态 (4_car -60 )
+DETECT_Y     = -0.010                        # 识别时 y 降到检测高度
+PICK_POSE_Y  = -0.150                        # 抓块姿态 y (servo_y)
+PICK_HAND    = 0                             # 抓块姿态手爪
+FIRST_CUBE_X, SECOND_CUBE_X = -0.145, -0.220 # 每块组内 第1/第2 块 X
+GRASP_Y, LIFT_Y = -0.050, -0.150             # 吸块下降 y / 吸完抬回 y
+DELIVER_Y    = [-0.010, -0.045, -0.085]      # 放块第1/2/3层 y (梯度)
+DELIVER_HAND = [-80, -85, -85]               # 放块第1/2/3层手爪 (4_car -80/-85/-85 )
+CARRY_X      = [[-0.060, -0.055, -0.055],
+                [-0.060, -0.055, -0.055]]    # 每塔每块放块 X (m)
+
+# ----- 转大臂前 XY 安全位 (4_car 安全区 X∈[-300,-200] Y∈[-200,-90]mm) -----
+SAFE_X, SAFE_Y = -0.200, -0.150
+
+# ----- 视觉伺服参数 (现场校准) -----
+#   kp=(左右增益, 前后增益); sign=(左右符号, 前后符号)。
+#   TRACK: kp_x=0=横向锁死, kp_y=0.22=只前后; sign_y=+1=前后方向(目标左→前进; 现场定, 反则正反馈越追越偏)
+TRACK = dict(                                   # 底盘对齐水塔 (只前后)
+    cx=0.142, cy=0.183, kp=(0.0, 0.22),
+    sign=(1.0, 1.0), deadband=0.04, hold=6,
+    v_max=0.11, timeout=15.0,
+)
+PICK = dict(                                    # 机械臂伺服抓水块
+    cx=0.098, cy=-0.398, gains=(0.1, 0.05),
+    sign=(-1.0, -1.0), deadzone=0.04, settle=6,   # 大臂-1/滑轨+1 (跟 seeding 抓取一致)
+    timeout=15.0,
+)
+
+
+# ========================== 辅助函数 ==========================
+def _chassis(car, pos, target):
+    """底盘纵向 move_for 到相对位移 target(m), 自记账(相对塔原点), 不依赖 odom 绝对值."""
+    dx = target - pos[0]
+    if abs(dx) < 0.05:
+        pos[0] = target
+        return
+    car.move_for([dx, 0, 0], max_velocities=CHASSIS_V)
+    pos[0] = target
+
+
+def _arm_to(car, x, y, arm, hand):
+    """切机械臂姿态: 转大臂前 XY 先到安全位(防低Y/伸X时转臂撞塔) → 转大臂/手爪 → XY 并发到位.
+    大臂角度不变(无旋转)时跳过安全位机动, 直接 XY 到位——省掉塔间切检测姿态那趟
+    重复的抬Y/收X(如放完块 大臂已在 -93, 切检测姿态仍 -93, 抬到 -0.15 纯属无用功).
+    末端命令异步发(不等应答), 减少对半双工总线的占用."""
+    if car.arm.angle != arm:          # 有旋转才需要"抬Y收X到安全位"防撞
+        car.arm.move_y_position(SAFE_Y)
+        car.arm.move_x_position(SAFE_X)
+    car.arm.set_arm_angle(arm)
+    if hand is not None:
+        car.arm.set_hand_angle_async(hand, speed=80)
+    car.arm.goto_position(x, y)
+
+
+# 底盘对齐/识别都算"水"的标签: water(塔/水块) 或 water_l*(等级标), 哪个可见用哪个
+WATER_ALIGN_LABELS = ("water", "water_l1", "water_l2", "water_l3")
+
+
+def _find_water_label(car, max_age=0.5):
+    """取实时缓存里任一可见的水标签作为对齐目标(water 或 water_l* 都算)."""
+    for d in car.get_realtime_detections(max_age=max_age):
+        if d[2] in WATER_ALIGN_LABELS:
+            return d[2]
+    return None
+
+
+def _align_tower(car):
+    """底盘视觉对齐水塔: 目标取实时缓存里任一可见水标签(先等 1.5s 让其出现),
+    只前后(横向锁死), 拉到 setpoint(0.142,0.183)."""
+    end = time.time() + 1.5
+    label = None
+    while time.time() < end:
+        label = _find_water_label(car)
+        if label is not None:
+            break
+        time.sleep(0.05)
+    if label is None:
+        print("[底盘] 1.5s 内未见任何水标签, 跳过对齐")
+        return
+    print(f"[底盘] 对齐目标: {label}")
+    car.chassis_align(label, cx=TRACK["cx"], cy=TRACK["cy"],
+                      kp=TRACK["kp"], sign=TRACK["sign"],
+                      deadband=TRACK["deadband"], hold=TRACK["hold"],
+                      v_max=TRACK["v_max"], decouple_xy=False,
+                      timeout=TRACK["timeout"])
+
+
+def _detect_water_num(car, timeout=1.0):
+    """从侧视实时缓存识别水塔等级标 water_l*, 返回需搬块数(没识别到返回 0)."""
+    end = time.time() + timeout
+    while time.time() < end:
+        for d in car.get_realtime_detections(max_age=0.5):
+            if d[2] in WATER_LABEL:
+                return WATER_LABEL[d[2]], d[2]
+        time.sleep(0.05)
+    return 0, None
+
+
+def _ensure_hand(car, target, retries=3, settle=0.5):
+    """末端 PWM 舵机无位置回读(只能发不能读), 以连发命令+等舵机到位时间+重试,
+    覆盖丢帧/大电流复位, 确保末端确实在 target 角度再继续。
+    用异步发(不等应答)降低对半双工总线的占用, 命令送达率更高。
+    (现场: 只发一次时常停在半路约 -40 未到位)"""
+    for _ in range(retries):
+        car.arm.set_hand_angle_async(target, speed=80)
+        time.sleep(settle)
+
+
+def _servo_pick(car):
+    """车不动, 机械臂视觉伺服把水块对齐到 setpoint(0.098,-0.398) → 下探吸 → 抬回."""
+    _ensure_hand(car, PICK_HAND)          # 对齐前: 末端强制到位(抓块姿 0°)
+    car.arm_servo_align(TARGET_WATER, cx=PICK["cx"], cy=PICK["cy"],
+                        gains=PICK["gains"], sign=PICK["sign"],
+                        deadzone=PICK["deadzone"], settle=PICK["settle"],
+                        timeout=PICK["timeout"])
+    _ensure_hand(car, 0)                 # 下降前: 末端转朝下 0
+    car.arm.move_y_position(GRASP_Y)      # 降到水块高度
+    car.arm.grasp(True)                   # 吸气吸住
+    car.arm.move_y_position(LIFT_Y)       # 抬回运输高度
+
+
+def run_one_tower(car, tower_idx):
+    """处理一座水塔: 识别水量 → 逐块「抓→放」. 底盘相对塔原点, 串行."""
+    # 识别
+    car.arm.move_y_position(DETECT_Y)      # y 降检测高度
+    _align_tower(car)                      # 底盘只前后对齐水塔
+    n, label = _detect_water_num(car)      # water_l* → 需搬块数
+    print(f"\n[水塔{tower_idx+1}] label={label}, 水量={n}")
+    car.beep()
+
+    pos = [0.0]                            # 底盘相对塔原点 (m)
+    direction = 1.0 if tower_idx == 0 else -1.0   # 塔1水块在前方(向前拿), 塔2在后方(向后拿)
+    for k in range(n):
+        print(f"  搬第 {k+1}/{n} 块")
+        # ===== 抓 =====
+        group = k // 2                     # 每 2 块一组
+        dist = direction * group * (GROUP_FWD if direction > 0 else GROUP_BACK)
+        _chassis(car, pos, dist)                       # 底盘到该组
+        pick_x = FIRST_CUBE_X if k % 2 == 0 else SECOND_CUBE_X
+        _arm_to(car, pick_x, PICK_POSE_Y, ARM_SHELF, PICK_HAND)  # 切抓姿(朝置物架)
+        _servo_pick(car)                                 # 视觉伺服抓块
+        # ===== 放 =====
+        _chassis(car, pos, 0.0)                          # 底盘回塔
+        _arm_to(car, CARRY_X[tower_idx][k], DELIVER_Y[k],
+                ARM_TOWER, DELIVER_HAND[k])              # 切投放(朝水塔, 梯度深度)
+        _ensure_hand(car, DELIVER_HAND[k])               # 投放前: 末端强制到位
+        car.arm.grasp(False)                             # 放气投放
+        car.beep()
 
 
 def run(car):
-    water_num = {"water_l1": 1, "water_l2": 2, "water_l3": 3}  # 标签对应水量
-    tower_water = []
-    water_loction = []
-    tower_loction = {}
-    car.arm.set_arm_pose(x=0.0, y=0.02, arm="RIGHT", hand="UP")
+    """run.py 编排入口(复用编排器已建的车): 与 main() 同一套流程."""
+    try:
+        # 切检测姿态 (4_car entry_back_off 的底盘回退已删除: 直接原地切臂姿)
+        _arm_to(car, DETECT_POSE["x"], DETECT_POSE["y"],
+                DETECT_POSE["arm"], DETECT_POSE["hand"])
 
-    car.lane_dis_offset(speed=0.3, dis_hold=2.0)
-    car.get_odometry(True)
-    time.sleep(1)
-    car.move_for([0, -0.05, 0])  # 向右微调位置
-    # 识别第一个水塔
-    cls_id, label = car.move_to_detection_target(delta_y=None)
-    tower_water.append(label)
-    print(f"识别到目标{cls_id}-{label},第一个水塔")
-    car.beep()
-    tower_loction[label] = car.get_odometry(True)
-    headinng = tower_loction[label][2]
-    print(f"当前角度{headinng}")
+        print("===== 第 1 个水塔 =====")
+        run_one_tower(car, tower_idx=0)
 
-    # 记录水块位置
-    car.arm.move_y_position(0.2)
-    # car.arm.move_x_position(0.0)
-    car.arm.set_arm_pose(arm="LEFT", hand="DOWN")
+        # 塔间前进 + 切回检测姿态
+        print(f"\n===== 前进 {TOWER_SPACING} m 到第 2 个水塔 =====")
+        car.move_for([TOWER_SPACING, 0, 0], max_velocities=CHASSIS_V)
+        _arm_to(car, DETECT_POSE["x"], DETECT_POSE["y"],
+                DETECT_POSE["arm"], DETECT_POSE["hand"])
 
-    def record_detection_pose():
-        """返回识别位置"""
-        time.sleep(1)
-        cls_id, label = car.move_to_detection_target()
-        x, y, z = car.get_odometry()
-        pose = [x, y, z, car.arm.x_get_position()]
-        car.beep()
-        return pose
+        print("===== 第 2 个水塔 =====")
+        run_one_tower(car, tower_idx=1)
 
-    # 记录前两个水块位置
-    water_loction.append(record_detection_pose())
-    car.adjust_arm_position(0.1)
-    water_loction.append(record_detection_pose())
+        print("\n全部完成 ✓")
+        car.beep(); car.beep()
+    except KeyboardInterrupt:
+        print("\n急停")
+    finally:
+        car.arm.grasp(False)
+        car.stop()
 
-    # 记录中间两个水块位置
-    car.lane_dis_offset(speed=0.3, dis_hold=0.32)
-    water_loction.append(record_detection_pose())
-    car.adjust_arm_position(-0.1)
-    water_loction.append(record_detection_pose())
 
-    # 记录后两个水块位置
-    car.lane_dis_offset(speed=0.3, dis_hold=0.32)
-    x, y, z = car.get_odometry()
-    car.move_for([0, -0.03, headinng - z])  # 调整角度 不要巡线导致位置歪了
-    water_loction.append(record_detection_pose())
-    car.adjust_arm_position(0.1)
-    water_loction.append(record_detection_pose())
+def main():
+    """独立运行入口: 自建车后跑 run(). 运行: python tasks/watering.py"""
+    car = create_car()
+    try:
+        run(car)
+    finally:
+        car.close()
 
-    # 调整位置识别第二个水塔
-    car.arm.set_arm_pose(arm="RIGHT", hand="UP")
-    car.arm.set_arm_pose(x=0.0, y=0.02)
 
-    time.sleep(0.5)
-    cls_id, label = car.move_to_detection_target(delta_y=None)
-    tower_water.append(label)
-    print(f"识别到目标{cls_id}-{label},第二个水塔")
-    car.beep()
-    tower_loction[label] = car.get_odometry(True)
-
-    print("------------------水塔任务记录------------------")
-    print(f"水塔识别结果：{tower_water}")
-    print(f"水块位置：")
-    print(*water_loction, sep="\n")
-    print(f"水塔位置：{tower_loction}")
-    print("----------------------------------------------")
-    print("-------------------开始执行--------------------")
-    # 先执行第二个水塔，
-    for i, label in enumerate(reversed(tower_water)):
-        water_num_ = water_num[label]
-        print(f"当前水塔{label}，需要浇水{water_num_}次")
-        for j in range(water_num_):
-            # 移动到水块位置
-            car.arm.move_y_position(0.2)
-            car.arm.move_x_position(0.0)
-            car.arm.set_arm_pose(arm="LEFT", hand="DOWN")
-            # 调整位置和机械臂，与水块对齐
-            if i == 0:
-                k = -(j + 1)
-            if i == 1:
-                k = j
-            car.move_to_position(water_loction[k][0:3])
-            car.arm.move_x_position(water_loction[k][3])
-            car.move_to_detection_target()
-            car.adjust_arm_position()
-            # 吸水
-            car.arm.grasp(True)
-            car.arm.move_y_position(0.09)
-            car.arm.move_y_position(0.2)
-            car.arm.move_x_position(0.01)
-            car.arm.set_arm_pose(arm="RIGHT", hand="UP")
-
-            # 移动到水塔位置
-            car.move_to_position(tower_loction[label])
-            car.arm.move_y_position(0.01 + 0.055 * j)
-            car.move_to_detection_target(delta_y=None)
-            car.arm.move_x_position(0.20)
-            car.arm.grasp(False)
-            time.sleep(0.5)
-            car.arm.move_x_position(0.15)
-            time.sleep(0.5)
-            car.arm.move_x_position(0.01)
-            # 浇水
-            time.sleep(0.5)
+if __name__ == "__main__":
+    main()

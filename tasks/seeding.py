@@ -54,10 +54,16 @@ PLACE_SERVO = dict(
     gains=(0.2, 0.1), sign=(-1.0, -1.0), deadzone=0.03, timeout=15.0, debug=True
 )
 
+# ── 置信度过滤: 只认 85% 以上的目标, 滤掉低分误检(选列/对齐统一用) ──
+SCORE_THRESHOLD = 0.85
+
 
 def _has(car, label, max_age=0.3):
-    """只查不移动: 侧视实时缓存里是否存在该 label 目标(供选列/兜底扫描用)."""
-    return any(d[2] == label for d in car.get_realtime_detections(max_age=max_age))
+    """只查不移动: 侧视实时缓存里是否存在该 label 目标(置信度≥SCORE_THRESHOLD, 供选列/兜底扫描用)."""
+    return any(
+        d[2] == label and d[3] >= SCORE_THRESHOLD
+        for d in car.get_realtime_detections(max_age=max_age)
+    )
 
 
 def _ensure_hand(car, target=10.0, retries=3, settle=0.5):
@@ -70,10 +76,18 @@ def _ensure_hand(car, target=10.0, retries=3, settle=0.5):
 
 
 def _pick(car, label):
+    """抓 cylinder_1/2/3: 右臂对齐吸嘴到筒正上方 → 下放吸起.
+
+    对齐超时未收敛也不中断任务: 打印告警后仍按当前臂位继续下放抓取
+    (NOZZLE setpoint 已标定, 未收敛多半只是差几个死区, 硬抓成功率更高)。
+    """
     _ensure_hand(car)  # ① 视觉对齐前: 强制末端到位
     # 右臂对齐 cylinder_1/2/3(抓取): 锁定画面靠右的目标
-    if not car.arm_servo_align(label, *NOZZLE[label], prefer_right=True, **PICK_SERVO):
-        raise RuntimeError(f"pick {label} 未收敛")
+    ok = car.arm_servo_align(
+        label, *NOZZLE[label], prefer_right=True, min_score=SCORE_THRESHOLD, **PICK_SERVO
+    )
+    if not ok:
+        print(f"[抓取] {label} 对齐未收敛, 继续按当前位下放抓取")
     _ensure_hand(car)  # ② 抓取前再兜底: 滑轨/Y 大电流移动可能又把舵机打回 -90
     car.arm.move_y_position(GRASP_Y)
     car.arm.grasp(True)
@@ -123,7 +137,9 @@ def _pre_align(car):
     )
     _ensure_hand(car)  # 视觉对齐前: 强制末端到位
     # 左臂对齐 cylinder_set(放苗预对位): 锁定画面靠左的目标
-    ok = car.arm_servo_align(MARKER, *MARKER_NOZZLE, prefer_left=True, **PLACE_SERVO)
+    ok = car.arm_servo_align(
+        MARKER, *MARKER_NOZZLE, prefer_left=True, min_score=SCORE_THRESHOLD, **PLACE_SERVO
+    )
     if ok:
         # 伺服后臂已微调到槽正上方, 记下此刻 4 轴状态作为放苗姿势
         pose = (
