@@ -82,12 +82,13 @@ def _chassis(car, pos, target):
 
 def _arm_to(car, x, y, arm, hand):
     """切机械臂姿态: 先抬Y到安全高 → 收X到安全位(XY 冻结) → 转大臂/手爪 → XY 并发到位.
-    保留 4_car "转大臂时 XY 冻结在安全区" 的顺序防撞; 先抬 Y 再收 X, 防低 Y 时转臂撞塔."""
+    保留 4_car "转大臂时 XY 冻结在安全区" 的顺序防撞; 先抬 Y 再收 X, 防低 Y 时转臂撞塔.
+    末端命令异步发(不等应答), 减少对半双工总线的占用."""
     car.arm.move_y_position(SAFE_Y)
     car.arm.move_x_position(SAFE_X)
     car.arm.set_arm_angle(arm)
     if hand is not None:
-        car.arm.set_hand_angle(hand)
+        car.arm.set_hand_angle_async(hand, speed=80)
     car.arm.goto_position(x, y)
 
 
@@ -138,9 +139,10 @@ def _detect_water_num(car, timeout=1.0):
 def _ensure_hand(car, target, retries=3, settle=0.5):
     """末端 PWM 舵机无位置回读(只能发不能读), 以连发命令+等舵机到位时间+重试,
     覆盖丢帧/大电流复位, 确保末端确实在 target 角度再继续。
+    用异步发(不等应答)降低对半双工总线的占用, 命令送达率更高。
     (现场: 只发一次时常停在半路约 -40 未到位)"""
     for _ in range(retries):
-        car.arm.set_hand_angle(target)
+        car.arm.set_hand_angle_async(target, speed=80)
         time.sleep(settle)
 
 
