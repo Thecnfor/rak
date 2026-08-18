@@ -12,7 +12,11 @@ import time
 # ── 底盘列(相对位移 m) & 标签→槽映射 ──────────────────────────────
 SOURCE = {1: 0.0, 2: 0.15, 3: 0.30}
 SLOT = {1: 0.0, 2: 0.15, 3: 0.30}
-TARGET_SLOT = {"cylinder_1": 3, "cylinder_2": 2, "cylinder_3": 1}  # 3大→槽1, 2中→槽2, 1小→槽3(左→右由大到小)
+TARGET_SLOT = {
+    "cylinder_1": 3,
+    "cylinder_2": 2,
+    "cylinder_3": 1,
+}  # 3大→槽1, 2中→槽2, 1小→槽3(左→右由大到小)
 CYLINDERS = ("cylinder_1", "cylinder_2", "cylinder_3")
 
 # ── 吸嘴 setpoint(目标在吸嘴正下方时 bbox 中心, 归一化) — 需重标 ──
@@ -33,8 +37,8 @@ MARKER_NOZZLE = (0.0, -0.331)
 PICK_POSE = dict(x=-0.05, y=-0.15, arm=-90, hand=10)
 PLACE_POSE = dict(x=-0.2, y=-0.15, arm=93, hand=10)  # 机械臂预对位基准/放苗兜底
 CHASSIS_ALIGN_X = -0.26  # 仅底盘对齐阶段: 滑轨放更外侧, 便于把槽标拉进画面中心
-GRASP_Y, LIFT_Y = 0.0, -0.15         # 降至最底(0)吸 / 抬回(-0.15)
-PLACE_Y, PLACE_LIFT_Y = -0.02, -0.15 # 放苗微降 / 释放后一步抬到 -0.15
+GRASP_Y, LIFT_Y = 0.0, -0.15  # 降至最底(0)吸 / 抬回(-0.15)
+PLACE_Y, PLACE_LIFT_Y = -0.02, -0.15  # 放苗微降 / 释放后一步抬到 -0.15
 
 MOVE_V = 0.1  # 底盘平移限速, 降漂移
 
@@ -43,8 +47,12 @@ MOVE_V = 0.1  # 底盘平移限速, 降漂移
 # gain_cy 曾按 50 倍放小到 0.003/0.004(7s 内滑轨几乎不动), 恢复为 0.1。
 # sign 按现场最终确认双表全反(目标在左→该摆向RIGHT、目标在上→该左伸/右缩),
 # 现用值: PICK(-1,1), PLACE(-1,-1), 对齐超时 10s。debug=True 待收敛确认后再删。
-PICK_SERVO = dict(gains=(0.2, 0.1), sign=(-1.0, 1.0), deadzone=0.02, timeout=15.0, debug=True)
-PLACE_SERVO = dict(gains=(0.2, 0.1), sign=(-1.0, -1.0), deadzone=0.03, timeout=15.0, debug=True)
+PICK_SERVO = dict(
+    gains=(0.2, 0.1), sign=(-1.0, 1.0), deadzone=0.02, timeout=15.0, debug=True
+)
+PLACE_SERVO = dict(
+    gains=(0.2, 0.1), sign=(-1.0, -1.0), deadzone=0.03, timeout=15.0, debug=True
+)
 
 
 def _has(car, label, max_age=0.3):
@@ -95,8 +103,9 @@ def _pre_align(car):
     预对位超时用 PLACE_POSE 默认值兜底, 不阻塞(完赛优先)。
     """
     # ① 底盘对齐姿态: 滑轨放外侧, 视野敞开便于检测槽标记
-    car.arm.set_arm_pose(CHASSIS_ALIGN_X, PLACE_POSE["y"],
-                         PLACE_POSE["arm"], PLACE_POSE["hand"])
+    car.arm.set_arm_pose(
+        CHASSIS_ALIGN_X, PLACE_POSE["y"], PLACE_POSE["arm"], PLACE_POSE["hand"]
+    )
     # 手爪: 大臂摆位+滑轨连发瞬间首条 hand 命令易被总线竞争吞掉/未到位
     # (实测底盘对齐阶段手爪停在 -90)。等臂稳后重发向下并给舵机到位时间。
     time.sleep(0.5)
@@ -109,17 +118,24 @@ def _pre_align(car):
     # print(f"底盘对齐槽标记: {'成功' if ok_chassis else '超时/未对齐, 继续预对位'}")
     ok_chassis = True
     # ② 机械臂预对位: 车已粗对准, 把滑轨摆回 -0.2 基准再让臂精对位
-    car.arm.set_arm_pose(PLACE_POSE["x"], PLACE_POSE["y"],
-                         PLACE_POSE["arm"], PLACE_POSE["hand"])
+    car.arm.set_arm_pose(
+        PLACE_POSE["x"], PLACE_POSE["y"], PLACE_POSE["arm"], PLACE_POSE["hand"]
+    )
     _ensure_hand(car)  # 视觉对齐前: 强制末端到位
     # 左臂对齐 cylinder_set(放苗预对位): 锁定画面靠左的目标
     ok = car.arm_servo_align(MARKER, *MARKER_NOZZLE, prefer_left=True, **PLACE_SERVO)
     if ok:
         # 伺服后臂已微调到槽正上方, 记下此刻 4 轴状态作为放苗姿势
-        pose = (car.arm.x_get_position(), car.arm.y_get_position(),
-                car.arm.angle, car.arm.hand_angle)
-        print(f"预对位成功, 记住放苗姿势 x={pose[0]:.3f} y={pose[1]:.3f} "
-              f"arm={pose[2]:.1f} hand={pose[3]:.1f}")
+        pose = (
+            car.arm.x_get_position(),
+            car.arm.y_get_position(),
+            car.arm.angle,
+            car.arm.hand_angle,
+        )
+        print(
+            f"预对位成功, 记住放苗姿势 x={pose[0]:.3f} y={pose[1]:.3f} "
+            f"arm={pose[2]:.1f} hand={pose[3]:.1f}"
+        )
         return pose
     print("预对位超时, 放苗用默认姿势")
     return (PLACE_POSE["x"], PLACE_POSE["y"], PLACE_POSE["arm"], PLACE_POSE["hand"])
@@ -135,18 +151,19 @@ def _chassis(car, target, pos):
 
 
 def run(car):
-    pos = [0.0]           # 底盘纵向自记账
+    pos = [0.0]  # 底盘纵向自记账
     seen = None
     completed = []
-    place_pose = None     # 第1列预对位记住的放苗姿态, 后两列复用
+    place_pose = None  # 第1列预对位记住的放苗姿态, 后两列复用
     for col in (1, 2, 3):
         _chassis(car, SOURCE[col], pos)
         # 第1列: 先预对位槽标记, 记住放苗姿势(横向/大臂姿势全程通用, 只需一次)
         if place_pose is None:
             place_pose = _pre_align(car)
         # 摆抓取姿势
-        car.arm.set_arm_pose(PICK_POSE["x"], PICK_POSE["y"],
-                             PICK_POSE["arm"], PICK_POSE["hand"])
+        car.arm.set_arm_pose(
+            PICK_POSE["x"], PICK_POSE["y"], PICK_POSE["arm"], PICK_POSE["hand"]
+        )
         print(f"已经移动到了PICK_POSE")
         # 扫描本列 cylinder; 没有就用剩余 label 兜底
         label = next((l for l in CYLINDERS if _has(car, l)), None)

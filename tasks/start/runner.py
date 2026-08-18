@@ -80,6 +80,8 @@ class TaskRunner:
         self.cfg_manager = cfg_manager
         self.cruiser = cruiser
         self.hooks = hooks
+        # 已执行任务的 run() 返回值 {task_name: return}, 供下游任务结果链接力取用
+        self.results: Dict[str, object] = {}
 
     # ---------- 任务结束钉姿势 ----------
     def _pin_end_pose(self, task_name: str) -> None:
@@ -138,10 +140,17 @@ class TaskRunner:
         task_return = None
         if auto_run:
             args = task_args.get(task_name, ())
-            kwargs = task_kwargs.get(task_name, {})
+            kwargs = dict(task_kwargs.get(task_name, {}))  # 拷贝, 避免污染调用方配置
+            # 结果链接力: kwargs 值为 callable 时, 用已完成任务的返回值表实时求值
+            # (例: {"animal_list": lambda r: r["target_detection"]} 把上一个任务
+            #  的返回值作为本任务入参, 任务未跑/被跳过时回落默认 None)
+            for k, v in list(kwargs.items()):
+                if callable(v):
+                    kwargs[k] = v(self.results)
             self.host.start_skip_listener()
             try:
                 task_return = run_task_module(self.host, task_name, *args, **kwargs)
+                self.results[task_name] = task_return
             finally:
                 skipped, emergency = self.host.stop_skip_listener()
                 if emergency:

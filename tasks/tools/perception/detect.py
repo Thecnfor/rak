@@ -12,10 +12,15 @@ from smartcar import logger
 class DetectMixin:
 
     def get_detection_results(
-        self, sort_pos=(0, 0), limit_x=1, limit_y=1
+        self, sort_pos=(0, 0), limit_x=1, limit_y=1, score_thresh=None
     ) -> List[list]:
         """
         获取检测结果,使用任务的目标检测对侧边摄像头图像进行检测，返回检测结果。
+
+        参数:
+            sort_pos: 排序参考点(归一化中心坐标), 按离该点由近及远排序
+            limit_x/limit_y: 中心坐标过滤范围
+            score_thresh: 置信度下限, None 则不过滤(默认, 不影响其他任务); 传值只保留 score>=阈值的框
 
         返回:
             list: - 检测结果列表，每个元素包含 [cls_id, det_id, label, score, x_c, y_c, w, h]
@@ -25,6 +30,8 @@ class DetectMixin:
         det_task = self.task_det(image)
         det_task = [det for det in det_task if abs(det[4]) <= limit_x]
         det_task = [det for det in det_task if abs(det[5]) <= limit_y]
+        if score_thresh is not None:
+            det_task = [det for det in det_task if det[3] >= score_thresh]
 
         det_task.sort(
             key=lambda x: (x[4] - sort_pos[0]) ** 2 + (x[5] - sort_pos[1]) ** 2

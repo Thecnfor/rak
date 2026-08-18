@@ -44,6 +44,7 @@ class Orchestrator:
     def __init__(self, car):
         self.car = car
         self.done: set = set()  # 本次运行内已完成的任务集合
+        self.skip: set = set()  # 静态跳过的任务集合(整个流程不跑, 不算完成)
         self.running = True  # 当前编排流程是否还在进行
         self._key = car.key  # Key4Btn 实例
 
@@ -117,8 +118,8 @@ class Orchestrator:
             time.sleep(0.05)
 
     def schedule(self) -> List[str]:
-        """本轮需要执行的任务（顺序按 TASK_ORDER，自动跳过 self.done。"""
-        return [t for t in self.TASK_ORDER if t not in self.done]
+        """本轮需要执行的任务（顺序按 TASK_ORDER，跳过 self.skip 与 self.done。"""
+        return [t for t in self.TASK_ORDER if t not in self.skip and t not in self.done]
 
     # --- 任务运行期间的跳过/急停监听：本文件保留 ---
     def _listen_skip(self):

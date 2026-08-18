@@ -185,12 +185,13 @@ class LocateMixin:
 
     def move_to_detection_target(
         self,
-        delta_x=0.0,
+        delta_x=0.02,
         delta_y: Union[float, None] = 0.0,
         label=None,
         time_out=4.0,
         sort_pos=(0, 0),
         num=0,
+        score_thresh=None,
     ):
         """
         前往目标位置
@@ -198,6 +199,7 @@ class LocateMixin:
         参数:
             cls_id : 指定检测目标的 cls_id，默认None为距离中心最近的目标
             time_out: 设置超时时间
+            score_thresh: 置信度下限, 透传给 get_detection_results; None 则不过滤
             包含目标检测信息的列表，格式为 [cls_id, obj_id,label, score, x_c, y_c, w, h]
         """
         time_stop = time.time() + time_out
@@ -216,7 +218,7 @@ class LocateMixin:
         else:
             kp_y = 0.2
             kp_x = 0.16
-            ki_x = 0.0
+            ki_x = 0.06
 
         pid_x = PID(kp_x, ki_x)
         pid_x.output_limits = (-0.15, 0.15)
@@ -227,7 +229,7 @@ class LocateMixin:
                 self.arm.x_speed(0)
                 return -1, "None"
 
-            dets = self.get_detection_results(sort_pos=sort_pos)
+            dets = self.get_detection_results(sort_pos=sort_pos, score_thresh=score_thresh)
 
             if label is not None:
                 dets = [item for item in dets if item[2] == label]
@@ -246,7 +248,7 @@ class LocateMixin:
                 else:
                     out_y = kp_y * (dy - delta_y)
 
-                flag_x = x_count(abs(dx) < 0.04)
+                flag_x = x_count(abs(err_x) < 0.04)
                 flag_y = y_count(abs(dy) < 0.02)
                 if delta_y is None:
                     flag_y = True
