@@ -43,8 +43,8 @@ MOVE_V = 0.1  # 底盘平移限速, 降漂移
 # gain_cy 曾按 50 倍放小到 0.003/0.004(7s 内滑轨几乎不动), 恢复为 0.1。
 # sign 按现场最终确认双表全反(目标在左→该摆向RIGHT、目标在上→该左伸/右缩),
 # 现用值: PICK(-1,1), PLACE(-1,-1), 对齐超时 10s。debug=True 待收敛确认后再删。
-PICK_SERVO = dict(gains=(0.2, 0.1), sign=(-1.0, 1.0), deadzone=0.05, timeout=10.0, debug=True)
-PLACE_SERVO = dict(gains=(0.2, 0.1), sign=(-1.0, -1.0), deadzone=0.06, timeout=10.0, debug=True)
+PICK_SERVO = dict(gains=(0.2, 0.1), sign=(-1.0, 1.0), deadzone=0.02, timeout=10.0, debug=True)
+PLACE_SERVO = dict(gains=(0.2, 0.1), sign=(-1.0, -1.0), deadzone=0.03, timeout=10.0, debug=True)
 
 
 def _has(car, label, max_age=0.3):
