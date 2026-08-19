@@ -452,10 +452,6 @@ class Buzzer_1:
 
     def rings(self, *args):
         serial_mc601.write(self.cmd_data)
-        # serial_mc601.get_answer
-        time.sleep(0.4)
-        # return_data = serial_mc601.read()
-        # print("rings data:", return_data)
 
 
 class MagneticSensor_1:

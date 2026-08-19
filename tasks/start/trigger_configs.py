@@ -66,10 +66,10 @@ TASK_TRIGGER: Dict[str, Dict] = {
         "time_out": 0.0,  # 兜底: 超时(秒)强制停, 0=不启用
         "start_dist": 0.0,  # 先行驶多少米后才开始检查触发条件 (0=一开始就检查)
         "lane": {  # 本路段巡线特调(每任务独立, 跑完自动还原)
-            "kp": 2.3,  # 转向 PID Kp: 弯道转不过来加大 / 直道蛇形减小
+            "kp": 1.9,  # 转向 PID Kp: 弯道转不过来加大 / 直道蛇形减小
             "kd": 0.0,  # 转向 PID Kd(阻尼): 摆动大加大 / 转向迟钝减小
             "deadzone": 0.0,  # da 进 PID 前死区: 直线仍抖加大
-            "v_forward": 0.70,  # 恒速前进速度(m/s), 不填则回落公共默认 speed 0.3
+            "v_forward": 0.8,  # 恒速前进速度(m/s), 不填则回落公共默认 speed 0.3
         },
     },
     "ordering": {
@@ -101,7 +101,7 @@ TASK_TRIGGER: Dict[str, Dict] = {
         "max_age": 0.1,  # 缓存最多 0.3s 内的检测结果
         "max_run": 1.5,  # 视觉兜底必填: 2.5m 内没识别到也停, 防过站
         "time_out": 200.0,  # 20s 没触发强制停
-        "start_dist": 0.0,
+        "start_dist": 1.0,
         "lane": {  # 本路段巡线特调(每任务独立, 跑完自动还原)
             "kp": 1.6,  # 转向 PID Kp: 弯道转不过来加大 / 直道蛇形减小
             "kd": 0.0,  # 转向 PID Kd(阻尼): 摆动大加大 / 转向迟钝减小
@@ -134,15 +134,15 @@ TASK_TRIGGER: Dict[str, Dict] = {
     "shooting": {
         "type": "vision",
         "labels": ["animal"],  # 识别到动物即触发
-        "min_score": 0.8,
-        "confirm": 6,
+        "min_score": 0.75,
+        "confirm": 3,
         "fresh": True,
         "max_age": 0.1,
         "max_run": 3.0,
         "time_out": 300.0,
-        "start_dist": 2.7,
+        "start_dist": 2.0,
         "lane": {  # 本路段巡线特调(每任务独立, 跑完自动还原)
-            "kp": 2,
+            "kp": 2.29,
             "kd": 0.0,
             "deadzone": 0.0,
             "v_forward": 0.6,
@@ -155,11 +155,11 @@ TASK_TRIGGER: Dict[str, Dict] = {
         "confirm": 3,
         "fresh": False,
         "max_age": 0.1,
-        "max_run": 2.5,
+        "max_run": 2.6,
         "time_out": 300.0,
         "start_dist": 0.0,
         "lane": {  # 本路段巡线特调(每任务独立, 跑完自动还原)
-            "kp": 1.8,
+            "kp": 2.7,
             "kd": 0.0,
             "deadzone": 0.0,
             "v_forward": 0.6,
@@ -175,7 +175,7 @@ TASK_TRIGGER: Dict[str, Dict] = {
         "confirm": 3,
         "fresh": False,
         "max_age": 0.3,
-        "max_run": 1.6,
+        "max_run": 2.0,
         "time_out": 250.0,
         "start_dist": 0.0,
         "lane": {  # 本路段巡线特调(每任务独立, 跑完自动还原)

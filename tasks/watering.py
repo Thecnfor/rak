@@ -149,7 +149,7 @@ def _detect_water_num(car, timeout=0.2):
     return 0, None
 
 
-def _ensure_hand(car, target, retries=3, settle=0.5):
+def _ensure_hand(car, target, retries=3, settle=0.2):
     """末端 PWM 舵机无位置回读(只能发不能读), 以连发命令+等舵机到位时间+重试,
     覆盖丢帧/大电流复位, 确保末端确实在 target 角度再继续。
     用异步发(不等应答)降低对半双工总线的占用, 命令送达率更高。

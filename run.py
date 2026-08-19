@@ -24,7 +24,7 @@ import sys
 
 # 跳过这些任务(不跑巡线/钩子/钉姿势), 填 TASK_ORDER 里的任务名即可
 # SKIP_TASKS: set = set(["seeding", "target_detection", "watering", "shooting", "harvesting", "sorting", "ordering"])
-SKIP_TASKS: set = set()
+SKIP_TASKS: set = set(["seeding","watering"])
 
 # 任务结束后向左转 60° (逆时针) 的任务 — 起步巡线前先调整朝向
 # move_for 第三分量 = 角度偏移, 正向逆时针; 60° = π/3
@@ -34,12 +34,12 @@ _TURN_LEFT_RAD = math.pi / 3
 # 每个任务结束后的机械臂位姿 (x, y, arm, hand) -- 手动调
 # 注意: x 合法范围 -0.315~0(m), y 合法范围 -0.2~0(m); 单位是米, 都是负方向!
 TASK_END_POSE = {
-    "seeding": (-0.1, 0, "LEFT", "UP"),
-    "target_detection": (-0.2, -0.02, -93, -70),  # = 浇水识别水塔姿势, 浇水任务直接由此开始
-    "watering": (0, 0, "LEFT", "UP"),
-    "shooting": (-0.1, -0.1, "LEFT", "DOWN"),
+    "seeding": (-0.1, -0.05, "LEFT", "UP"),
+    "target_detection": (-0.3, -0.05, "RIGHT", "UP"),
+    "watering": (-0.0, -0.05, "LEFT", "UP"),
+    "shooting": (-0.25, -0.2, "LEFT", "DOWN"),
     "harvesting": (-0.0, 0, "LEFT", "UP"),
-    "sorting": (-0.3, 0, "RIGHT", "UP"),
+    "sorting": (-0.3, -0.05, "RIGHT", "UP"),
     "ordering": (-0, 0, "LEFT", "UP"),
     "delivery": (-0, 0, "LEFT", "UP"),
 }

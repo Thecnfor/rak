@@ -1,5 +1,5 @@
 mode: paddle
-draw_threshold: 0.3
+draw_threshold: 0.6
 metric: COCO
 use_dynamic_shape: false
 arch: YOLO

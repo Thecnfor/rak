@@ -69,19 +69,19 @@ def run(car, animal_list=None):  # noqa: E741
         for dis, x_c in zip(relative_loc, hit_x):
             if dis > 0:
                 car.lane_dis_offset(speed=0.10, dis_hold=dis)
-                time.sleep(0.5)
+                time.sleep(0.2)
             for _ in range(MAX_SHOTS):  # 每点最多击发 MAX_SHOTS 次, 击倒即停
                 car.move_to_detection_target(  # 每次击发前重新对齐(未击倒才走到这)
                     delta_x=x_c, delta_y=None, label="animal", sort_pos=(x_c, 0), lock=True,
                     min_score=ANIMAL_CONF, select_range=ALIGN_RANGE)  # 对齐击打点 (用 x_c 选中该只)
-                time.sleep(0.5)
+                time.sleep(0.2)
                 car.beep()
                 car.shooting()
-                time.sleep(0.5)
+                time.sleep(0.3)
                 if _knocked_down(car, x_c):
                     knock_count += 1
                     print(f"击倒 {knock_count}/2")
                     break
-            time.sleep(0.5)
+            time.sleep(0.3)
             if knock_count >= 2:  # 击倒 2 个即整个射击停止
                 break

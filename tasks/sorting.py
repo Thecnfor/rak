@@ -12,10 +12,8 @@ def run(car):
 
     # 移动到任务位置 前进2.0米
     car.lane_dis_offset(speed=0.3, dis_hold=2.0)
-    time.sleep(0.5)
     # 对齐到标签
     cls_id, label = car.move_to_detection_target(delta_y=None)
-    time.sleep(0.5)
     # 根据标签颜色确定要拿的小球
     if label == "lable_blue":
         flag = 1
@@ -34,10 +32,9 @@ def run(car):
             car.arm.move_x_position(0.30)
             car.arm.set_arm_pose(arm=94, hand="UP")
             car.arm.move_y_position(0.2 - i * 0.15)
-            time.sleep(0.5)
             car.arm.move_x_position(0.2)
             car.arm.grasp(False)
-            time.sleep(0.5)
+            time.sleep(0.2)
             car.arm.move_x_position(0.30)
         if i == 1:
             break

@@ -16,14 +16,13 @@ def run(car) -> list:
     car.arm.set_arm_pose(arm="LEFT", hand="UP")
     car.arm.set_arm_pose(x=-0.2, y=-0.05)
     car.get_distance(True)
-    time.sleep(0.4)
 
     with car.lane_config(LANE_PID):
         for i in range(4):
             cls_id, label = car.move_to_detection_target(
                 delta_x=0.0, delta_y=None, sort_pos=(0,0),min_score=ANIMAL_CONF
             )
-            time.sleep(0.2)
+            time.sleep(0.1)
             if label == "animal":
                 # 置信度过滤: 只有高分 animal 才写入; 取距 x_c=0 最近那只(当前站位对准的)记它的 x_c
                 dets = car.get_detection_results()
@@ -35,9 +34,7 @@ def run(car) -> list:
                         car.beep()
                         print(f"第{i+1}个动物分析结果：{res}，{analysis}")
                         animal_list[i] = (res, det[4])
-            time.sleep(0.2)
-            car.move_distance([0.2, 0, 0], dis=0.14)
-        time.sleep(0.2)
+            car.move_distance([0.2, 0, 0], dis=0.14)   # 阻塞定距
         car.beep()
         car.get_distance(True)
         return animal_list

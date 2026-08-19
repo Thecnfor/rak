@@ -420,7 +420,7 @@ class Streamer:
         self.server_thread = threading.Thread(target=self._run_server, daemon=True)
         self.server_thread.start()
 
-        time.sleep(0.5)
+        time.sleep(0.1)  # 极短等待, 让 HTTP 服务绑定端口即可(无功能依赖)
         Streamer._instances[self.port] = self
         self.show_local_info()
 

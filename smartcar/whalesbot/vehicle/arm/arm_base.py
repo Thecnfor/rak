@@ -279,12 +279,13 @@ class ArmController(ArmMotion):
 
         """
         self.goto_position(x, y)
-        # 大臂: 发送后等 1s 让总线安静, 再重发一次兜底(17449ff 修复"大臂概率不动"的
+        # 大臂: 发送后短暂让总线安静, 再重发一次兜底(17449ff 修复"大臂概率不动"的
         # 逻辑; 半双工 MC602 总线被 X/Y 电机帧 + 里程计后台 50Hz 轮询占用,
         # 单帧大臂命令紧跟 goto_position 后发易被挤掉)。手爪硬件已修复, 用异步发。
+        # 等 0.3s 而非 1s: 减少任务中每次摆臂的固定耗时, 兜底重发仍保留。
         if arm is not None:
             self.set_arm_angle(arm)
-            time.sleep(1)
+            time.sleep(0.3)
             self.set_arm_angle(arm)
         if hand is not None:
             self.set_hand_angle_async(hand)

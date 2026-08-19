@@ -5,6 +5,7 @@ from jsonschema import validate
 import os
 import yaml
 import base64
+import time
 from openai import OpenAI
 
 # 兜底 prompt(仅当 tasks/llm_config.yml 缺失时使用)
@@ -306,75 +307,72 @@ class ErnieBotWrap():
 		# print(self.prompt_str)
 
 	@staticmethod
-	def llm_prompt(section, default=None):
-		"""读取 tasks/llm_config.yml 中某节的 system_prompt, 缺失时返回 default。"""
+	def _llm_config():
+		"""读取 tasks/llm_config.yml 全部内容, 缺失时返回空 dict。"""
 		path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', '..', 'tasks', 'llm_config.yml')
 		try:
 			with open(path, encoding='utf-8') as f:
-				return (yaml.safe_load(f).get(section) or {}).get('system_prompt') or default
-		except (IOError, OSError, AttributeError):
-			return default
+				return yaml.safe_load(f) or {}
+		except (IOError, OSError):
+			return {}
+
+	@staticmethod
+	def llm_prompt(section, default=None):
+		"""读取 tasks/llm_config.yml 中某节的 system_prompt, 缺失时返回 default。"""
+		return (ErnieBotWrap._llm_config().get(section) or {}).get('system_prompt') or default
 	def get_image_res(self, image):
-		"""获取图片识别结果"""
-		
+		"""获取图片识别结果。
+
+		读取 tasks/llm_config.yml 中 pest_detect / ernie 节的参数:
+		    - pest_detect.system_prompt: 识别提示词(兜底 DEFAULT_PEST_PROMPT)
+		    - pest_detect.max_rounds   : 最大重试轮次(默认 3)
+		    - pest_detect.poll_interval_s: 重试间隔秒数(默认 0)
+		    - ernie.top_p              : 采样 top_p(默认 0.1)
+		"""
 		# base64_image  = base64.b64encode(image).decode("utf-8")
-		base64_image  = image
+		base64_image = image
 
-		system_prompt = self.llm_prompt('pest_detect', DEFAULT_PEST_PROMPT)
+		cfg = ErnieBotWrap._llm_config()
+		ernie_cfg = cfg.get('ernie') or {}
+		pest_cfg = cfg.get('pest_detect') or {}
+
+		system_prompt = pest_cfg.get('system_prompt') or DEFAULT_PEST_PROMPT
+		top_p = ernie_cfg.get('top_p', 0.1)
+		max_rounds = pest_cfg.get('max_rounds', 3)
+		poll_interval_s = pest_cfg.get('poll_interval_s', 0)
+
 		self.set_promt(system_prompt)
-		messages=[
-            {
-                'role': 'user', 'content': [
-                    {
-                        "type": "text",
-                        "text": system_prompt
-                    },
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:image/png;base64,{base64_image}"
-                        }
-                    }
-                ]   
-            }
-        ]
-		my_json_schema = {
-			"type": "json_schema",  # 固定值
-			"json_schema": {
-				"name": "animal_schema", # 给你的 Schema 起个名字
-				# "strict": True,            # 【重要】设为 True，强制模型严格遵守
-				"schema": {
-					# 这里写标准的 JSON Schema 定义
-					"type": "object",
-					"properties": { 							
-						"analysis":{'type':"string", "description":"动物识别的分析过程，包括动物识别和有害/有益判断的理由"},
-						"result": {'type':'integer', "description": "判断结果，有害动物返回0，有益动物返回1"}
-					},
-					"required": [ "analysis", "result" ],
-					            # 可以加上这个，防止额外字段（百度可能支持）
-            		"additionalProperties": False 
-				}
+		messages = [
+			{
+				'role': 'user', 'content': [
+					{"type": "text", "text": system_prompt},
+					{
+						"type": "image_url",
+						"image_url": {"url": f"data:image/png;base64,{base64_image}"}
+					}
+				]
 			}
-		}
+		]
 
-		for attempt in range(3):
+		for attempt in range(max_rounds):
 			response = self.client.chat.completions.create(
 				model=self.image_model,
 				messages=messages,
-				top_p=0.1,
+				top_p=top_p,
 			)
 			content = response.choices[0].message.content
 			try:
 				# 剥掉可能的 ```json 围栏，再取第一个 { 到最后一个 } 之间
 				content = content[content.find("{"): content.rfind("}") + 1]
 				data = json.loads(content)
-				analysis = data["analysis"]
 				result = data["result"]
-				return result, analysis
+				return result
 			except (json.JSONDecodeError, KeyError) as e:
 				print(f"第{attempt + 1}次解析失败: {e}\n原始返回: {content}")
+				if poll_interval_s > 0 and attempt < max_rounds - 1:
+					time.sleep(poll_interval_s)
 
-		return None, None  # 三次都失败，返回 None 让上层任务决定怎么处理
+		return None, None  # 全部失败，返回 None 让上层任务决定怎么处理
 
 
 	def get_res(self, str_input, record=False, request_timeout=5):

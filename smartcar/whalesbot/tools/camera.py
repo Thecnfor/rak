@@ -198,7 +198,8 @@ class Camera:
             self.cap_thread.daemon = True
             self.cap_thread.start()
             self.flag_thread = True
-        time.sleep(0.5)
+        # 注: 不再 sleep 0.5 —— 读帧是后台异步线程, read() 自会等 self.frame 就绪,
+        # 这里阻塞纯属拖慢 Car 初始化(前后两个摄像头各 0.5s)。
 
     def update(self):
         while True:

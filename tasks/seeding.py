@@ -139,7 +139,7 @@ def _scan_label(car):
     return max(present, key=lambda l: (counts[l], -CYLINDERS.index(l)))
 
 
-def _ensure_hand(car, target=-20.0, retries=3, settle=0.5):
+def _ensure_hand(car, target=-20.0, retries=3, settle=0.2):
     """视觉对齐前强制末端手爪到位: 舵机无位置回读(只能发不能读),
     故以"连发命令+等舵机到位时间+重试"覆盖丢帧/大电流复位场景,
     保证手爪确实在 target 角度再开始对齐/抓取。"""

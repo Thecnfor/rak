@@ -207,7 +207,7 @@ class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
         import logging as _log
 
         self.beep()  # 击发前蜂鸣, 提示即将射击 (方便听觉对齐)
-        time.sleep(0.2)
+        time.sleep(0.1)
 
         t0 = time.time()
         self.shoot.set(1)  # 继电器吸合 → 电磁铁得电
@@ -215,7 +215,7 @@ class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
         self.shoot.set(0)  # 继电器断开 → 复位
         elapsed = time.time() - t0
 
-        time.sleep(0.2)
+        time.sleep(0.1)
         self.beep()  # 击发后蜂鸣, 提示完成
         logger.info(
             "shooting() done: pulse={:.0f}ms, actual={:.0f}ms".format(

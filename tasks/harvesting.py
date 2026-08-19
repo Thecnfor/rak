@@ -83,7 +83,7 @@ def _look_ball(car, timeout=LOOK_S, max_age=0.3):
     return None
 
 
-def _ensure_hand(car, target=10.0, retries=3, settle=0.5):
+def _ensure_hand(car, target=10.0, retries=3, settle=0.2):
     """视觉对齐前强制末端手爪到位(舵机无回读, 连发+等到位兜底, 同 seeding)."""
     for _ in range(retries):
         car.arm.set_hand_angle(target)
@@ -123,7 +123,7 @@ def _pick(car, label):
     _ensure_hand(car)  # ② 抓取前兜底: 滑轨/Y 大电流移动可能把舵机打回
     car.arm.move_y_position(GRASP_Y)   # 降到抬5cm, 贴球面
     car.arm.grasp(True)                # 吸气
-    time.sleep(0.5)                    # 吸住保持
+    time.sleep(0.3)                    # 吸住保持
     car.arm.move_y_position(LIFT_Y)    # 抬到 -0.15
     # 放球: 大臂转 -80° 即放气, x 与手爪保持不动(统一简化, 用户 2026-08-18 拍板)
     car.arm.set_arm_angle(RELEASE_ARM)
