@@ -49,14 +49,28 @@ FINE_TUNE_V = 0.10          # 微调速度 (m/s)
 FINE_TUNE_MAX = 2           # 最多微调次数
 
 
-# ── 伺服参数(抓/放分开, 来自 4_car task_config.yml) ───────────────────
+# ── 分段伺服参数(粗对齐→精对齐, 抓/放分开, 来自现场标定) ─────────────
 # sign 按现场最终确认双表全反(目标在左→该摆向RIGHT、目标在上→该左伸/右缩),
-# 现用值: PICK(-1,1), PLACE(-1,-1), 对齐超时 10s。debug=True 待收敛确认后再删。
-PICK_SERVO = dict(
-    gains=(0.28, 0.18), sign=(-1.0, 1.0), deadzone=0.01, timeout=15.0, debug=True
+# 现用值: PICK(-1,1), PLACE(-1,-1)。
+# 粗对齐: 大增益(0.85/0.65)快速把目标拉近 + 大死区(0.08)容忍误差, 5s 超时,
+#         settle=3 帧即算粗到位, lock=5 帧首次锁定。
+# 精对齐: 小增益(0.30/0.20)小死区(0.02)精确收敛, 5s 超时, settle=4 帧,
+#         lock=1 不重新累计锁定帧, 直接续追粗对齐的目标(lock_px, 不重新选)。
+PICK_COARSE = dict(
+    gains=(0.85, 0.65), sign=(-1.0, 1.0), deadzone=0.08, timeout=5.0,
+    settle=3, lock=5, debug=True,
 )
-PLACE_SERVO = dict(
-    gains=(0.25, 0.15), sign=(-1.0, -1.0), deadzone=0.01, timeout=15.0, debug=True
+PICK_FINE = dict(
+    gains=(0.30, 0.20), sign=(-1.0, 1.0), deadzone=0.02, timeout=5.0,
+    settle=4, lock=1, debug=True,
+)
+PLACE_COARSE = dict(
+    gains=(0.85, 0.65), sign=(-1.0, -1.0), deadzone=0.08, timeout=5.0,
+    settle=3, lock=5, debug=True,
+)
+PLACE_FINE = dict(
+    gains=(0.30, 0.20), sign=(-1.0, -1.0), deadzone=0.02, timeout=5.0,
+    settle=4, lock=1, debug=True,
 )
 
 # 画面出现多个目标时的最终决策(传给 arm_servo_align 的 final_rule):
@@ -163,6 +177,43 @@ def _ensure_hand(car, target=-20.0, retries=3, settle=0.2):
         time.sleep(settle)
 
 
+def _align_staged(car, label, cx, cy, coarse, fine, prefer_left=False,
+                  prefer_right=False, max_px=None, lock_px=None,
+                  final_rule=None, px_range=None, min_score=SCORE_THRESHOLD):
+    """分段视觉对齐: 粗对齐快拉近(大增益/大死区/5s) → 精对齐精确收敛.
+
+    精对齐"追踪粗对齐的目标, 不重新选/不重新累计锁定帧":
+      - 任务层已传 lock_px(如 cylinder_2 锁最左真目标)则沿用;
+      - 否则取粗对齐结束后本列最接近期望点的目标 px 作精对齐 lock_px,
+        精对齐每帧强制锁定它(lock=1 不累计, 立即续追)。
+    粗对齐超时也照进精对齐(完赛优先)。返回精对齐收敛状态(粗对齐收敛时
+    精对齐通常也收敛; 粗对齐超时但精对齐到位也算成功)。
+    """
+    ok_coarse = car.arm_servo_align(
+        label, cx, cy, prefer_left=prefer_left, prefer_right=prefer_right,
+        max_px=max_px, lock_px=lock_px, final_rule=final_rule,
+        px_range=px_range, min_score=min_score, **coarse
+    )
+    # 精对齐锁定目标: 任务层已锁则沿用; 否则取粗对齐后本列最接近期望点的目标
+    fine_lock = lock_px
+    if fine_lock is None:
+        dets = [d for d in _dets(car) if d[2] == label]
+        if px_range is not None:
+            dets = [d for d in dets if px_range[0] <= d[4] <= px_range[1]]
+        if dets:
+            fine_lock = min(
+                dets, key=lambda d: (abs(d[4] - cx) ** 2 + abs(d[5] - cy) ** 2)
+            )[4]
+        else:
+            fine_lock = cx
+    ok_fine = car.arm_servo_align(
+        label, cx, cy, prefer_left=prefer_left, prefer_right=prefer_right,
+        max_px=max_px, lock_px=fine_lock, final_rule=final_rule,
+        px_range=px_range, min_score=min_score, **fine
+    )
+    return ok_fine or ok_coarse
+
+
 def _pick(car, label):
     """抓 cylinder_1/2/3: 右臂对齐吸嘴到筒正上方 → 下放吸起.
 
@@ -192,12 +243,12 @@ def _pick(car, label):
             max_px, lock_px = 0.4, valid[0][4]      # 只锁最左边的真目标
         else:
             max_px = 0.4                            # 底座剔除仍生效, 最终决策交给 final_rule
-    # 右臂对齐 cylinder_1/2/3(抓取): 锁定画面靠右的目标; px_range 只认本列, 排除相邻列
-    ok = car.arm_servo_align(
-        label, *NOZZLE[label], prefer_right=True,
-        max_px=max_px, lock_px=lock_px, final_rule=PICK_FINAL_RULE,
+    # 右臂对齐 cylinder_1/2/3(抓取): 分段粗→精对齐; px_range 只认本列, 排除相邻列
+    ok = _align_staged(
+        car, label, *NOZZLE[label], coarse=PICK_COARSE, fine=PICK_FINE,
+        prefer_right=True, max_px=max_px, lock_px=lock_px,
+        final_rule=PICK_FINAL_RULE,
         px_range=(-COLUMN_CX_MARGIN, COLUMN_CX_MARGIN),
-        min_score=SCORE_THRESHOLD, **PICK_SERVO
     )
     if not ok:
         print(f"[抓取] {label} 对齐未收敛, 继续按当前位下放抓取")
@@ -275,9 +326,10 @@ def _pre_align(car, pos=None):
     # 底盘纵向粗调(仅 cylinder_set 适用): 槽标记画面 cx 偏差过大 → 车前后微调再对齐
     if pos is not None:
         _chassis_fine_tune(car, MARKER, MARKER_NOZZLE[0], pos)
-    # 左臂对齐 cylinder_set(放苗预对位): 锁定画面靠左的目标
-    ok = car.arm_servo_align(
-        MARKER, *MARKER_NOZZLE, prefer_left=True, min_score=SCORE_THRESHOLD, **PLACE_SERVO
+    # 左臂对齐 cylinder_set(放苗预对位): 分段粗→精对齐, 锁定画面靠左的目标
+    ok = _align_staged(
+        car, MARKER, *MARKER_NOZZLE, coarse=PLACE_COARSE, fine=PLACE_FINE,
+        prefer_left=True,
     )
     if ok:
         # 伺服后臂已微调到槽正上方, 记下此刻 4 轴状态作为放苗姿势
