@@ -194,6 +194,7 @@ class LocateMixin:
         score_thresh=None,
         lock=False,
         min_score=0.0,
+        select_range=None,
     ):
         """
         前往目标位置
@@ -240,6 +241,11 @@ class LocateMixin:
 
             if min_score > 0:
                 dets = [item for item in dets if item[3] > min_score]
+                
+            if select_range is not None:
+                # 位置硬过滤: 只接受 x_c 距目标站位 delta_x 在窗口内的检测,
+                # 剔除偏离站位的干扰(如已被击倒的动物残骸)
+                dets = [item for item in dets if abs(item[4] - delta_x) <= select_range]    
 
             if len(dets) > num:
                 det = dets[num]
