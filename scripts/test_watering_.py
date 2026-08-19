@@ -28,6 +28,13 @@ TOWER_SPACING  = 0.60     # 两塔中心间距 (m)
 GROUP_FWD, GROUP_BACK = 0.34, 0.34   # 塔1向前/塔2向后 每组水块间距 (m)
 CHASSIS_V      = [0.10, 0.10, math.pi / 3]  # move_for 速度上限 [前后, 横向, 转角]
 
+# ----- 水塔识别保底(识别不到等级标时挪车再找) -----
+LOCATE_RETRY = 1.8        # 档1(原停车点)探测时长(秒), 找 water_l* 等级标
+RETRY_FINAL = 0.8         # 档2/3(挪车档)探测时长(秒), 短等快进
+RETRY_BACK  = 0.08        # 档2: 后退距离 (m)
+RETRY_FWD   = 0.16        # 档3: 前进距离 (m, 回原处再前 0.08)
+RETRY_JUMP  = 0.52        # 跳塔: 从档3停车位置(原停车点前 0.08m)到第二塔的固定距离 (m, 仅跳塔用)
+
 # ----- 水塔等级标签 → 需搬水块数 -----
 WATER_LABEL = {"water_l1": 1, "water_l2": 2, "water_l3": 3}
 TARGET_WATER = "water"     # 视觉伺服/对齐用的目标类(水塔/水块)
@@ -55,9 +62,9 @@ SAFE_X, SAFE_Y = -0.200, -0.180
 #   kp=(左右增益, 前后增益); sign=(左右符号, 前后符号)。
 #   TRACK: kp_x=0=横向锁死, kp_y=0.22=只前后; sign_y=+1=前后方向(目标左→前进; 现场定, 反则正反馈越追越偏)
 TRACK = dict(                                   # 底盘对齐水塔 (只前后)
-    cx=0.060, cy=-0.460, kp=(0.0, 0.30),
-    sign=(1.0, 1.0), deadband=0.02, hold=6,
-    v_max=0.11, timeout=15.0,
+    cx=0.060, cy=-0.460, kp=(0.0, 0.60),
+    sign=(1.0, 1.0), deadband=0.01, hold=6,
+    v_max=0.10, timeout=8.0,
 )
 PICK = dict(                                    # 机械臂伺服抓水块(期望点)
     cx=-0.045, cy=-0.545,                       # 大臂-1/滑轨-1 (跟 seeding 抓取一致)
@@ -79,12 +86,15 @@ PICK_FINE = dict(
 
 # ========================== 辅助函数 ==========================
 def _chassis(car, pos, target):
-    """底盘纵向 move_for 到相对位移 target(m), 自记账(相对塔原点), 不依赖 odom 绝对值."""
+    """底盘纵向 move_for 到相对位移 target(m), 自记账(相对塔原点), 不依赖 odom 绝对值.
+    放塔精度要求 <1cm: 提前返回门槛收到 5mm(自记账漂移时也会触发补偿),
+    move_for 显式传严容差(x/y 2mm, yaw 0.01rad≈0.57°, 车头歪会放大纵向误差)."""
     dx = target - pos[0]
-    if abs(dx) < 0.05:
+    if abs(dx) < 0.005:
         pos[0] = target
         return
-    car.move_for([dx, 0, 0], max_velocities=CHASSIS_V)
+    car.move_for([dx, 0, 0], max_velocities=CHASSIS_V,
+                 tolerance=[0.002, 0.002, 0.01])
     pos[0] = target
 
 
@@ -127,19 +137,19 @@ def _find_water_label(car, max_age=0.5):
     return None
 
 
-def _align_tower(car):
-    """底盘视觉对齐水塔: 目标取实时缓存里任一可见水标签(先等 1.5s 让其出现),
+def _align_tower(car, label=None):
+    """底盘视觉对齐水塔: label 已由保底探测给出则直接用; 否则等 1.5s 找任一水标签.
     只前后(横向锁死), 拉到 setpoint(0.142,0.183)."""
-    end = time.time() + 1.5
-    label = None
-    while time.time() < end:
-        label = _find_water_label(car)
-        if label is not None:
-            break
-        time.sleep(0.05)
     if label is None:
-        print("[底盘] 1.5s 内未见任何水标签, 跳过对齐")
-        return
+        end = time.time() + 1.5
+        while time.time() < end:
+            label = _find_water_label(car)
+            if label is not None:
+                break
+            time.sleep(0.05)
+        if label is None:
+            print("[底盘] 1.5s 内未见任何水标签, 跳过对齐")
+            return
     print(f"[底盘] 对齐目标: {label}")
     car.chassis_align(label, cx=TRACK["cx"], cy=TRACK["cy"],
                       kp=TRACK["kp"], sign=TRACK["sign"],
@@ -156,6 +166,31 @@ def _detect_water_num(car, timeout=1.0):
             if d[2] in WATER_LABEL:
                 return WATER_LABEL[d[2]], d[2]
         time.sleep(0.05)
+    return 0, None
+
+
+def _locate_water_num(car, pos, tower_idx):
+    """三档保底识别水塔等级标 water_l*: 找不到等级标时挪车再找,
+      档1 原停车点等 LOCATE_RETRY(1.8s) → 档2 后退 0.08m 等 RETRY_FINAL(0.8s)
+      → 档3 前进 0.16m(回原处再前 0.08m)等 RETRY_FINAL(0.8s)。
+      任一档看到等级标即做底盘对齐(用找到的 label, 不再重复等)并返回 (块数, label);
+      三档全失败返回 (0, None), 调用方从档3停车位置(原停车点前 0.08m)跳塔,
+      到第二塔走固定距离 RETRY_JUMP(0.52, 0.08+0.52=0.60=塔间距)。
+    保底挪车走 _chassis 更新 pos 自记账(供档位间相对挪车)."""
+    steps = [
+        (0.0, LOCATE_RETRY, "原停车点"),
+        (-RETRY_BACK, RETRY_FINAL, f"后退{RETRY_BACK * 1000:.0f}mm"),
+        (RETRY_FWD, RETRY_FINAL,
+         f"前进{RETRY_FWD * 1000:.0f}mm(回原处再前{(RETRY_FWD - RETRY_BACK) * 1000:.0f}mm)"),
+    ]
+    for i, (off, wait, desc) in enumerate(steps):
+        if i > 0:
+            print(f"[保底] 水塔{tower_idx + 1} 第{i + 1}档: {desc}")
+            _chassis(car, pos, pos[0] + off)
+        n, label = _detect_water_num(car, timeout=wait)
+        if n > 0:
+            _align_tower(car, label)
+            return n, label
     return 0, None
 
 
@@ -219,20 +254,26 @@ def _servo_pick(car):
 
 
 def run_one_tower(car, tower_idx, is_last_tower=False):
-    """处理一座水塔: 识别水量 → 逐块「抓→放」. 底盘相对塔原点, 串行.
+    """处理一座水塔: 三档保底识别水量 → 逐块「抓→放」. 底盘相对塔原点, 串行.
 
+    识别保底(_locate_water_num): 找不到等级标时挪车再找, 档1 等 1.8s / 档2·3 各 0.8s,
+      档1 原停车点 → 档2 后退 0.08 → 档3 前进 0.16(回原处再前 0.08);
+      三档全失败返回 (False, pos[0]), 调用方从档3停车位置跳塔(固定走 RETRY_JUMP)。
     安全顺序(每次转大臂前 XY 必在安全位 x=-0.2 / y≥-0.15):
       抓: 抬Y到SAFE_Y(-0.18) → 转大臂+93/末端 → X到组内指定距离 → 伺服识别水块 → 下探吸 → 抬回-0.15
       放: X回SAFE_X(-0.2) → 摆大臂-93+末端(同时) → X/Y到投放位 → 放气
       块间: X回-0.2 → Y回-0.18; 塔末: X回-0.2 → Y回检测姿势(-0.02) 供前进下一塔
+    返回 (success, final_pos): success=识别到并搬块; final_pos=保底折腾后相对位移(跳塔换算用).
     """
-    # 机械臂此时已在识别水塔姿势 (main/run() 已校验/兜底), 直接识别+对齐
-    _align_tower(car)                      # 底盘只前后对齐水塔
-    n, label = _detect_water_num(car)      # water_l* → 需搬块数
-    print(f"\n[水塔{tower_idx+1}] label={label}, 水量={n}")
+    pos = [0.0]                            # 底盘相对塔原点 (m)
+    # 三档保底识别: 找不到等级标就挪车再找(见 _locate_water_num)
+    n, label = _locate_water_num(car, pos, tower_idx)
+    if n == 0:
+        print(f"[水塔{tower_idx + 1}] 三档保底均未见等级标, 跳塔")
+        return False, pos[0]
+    print(f"\n[水塔{tower_idx + 1}] label={label}, 水量={n}")
     car.beep()
 
-    pos = [0.0]                            # 底盘相对塔原点 (m)
     direction = 1.0 if tower_idx == 0 else -1.0   # 塔1水块在前方(向前拿), 塔2在后方(向后拿)
     for k in range(n):
         print(f"  搬第 {k+1}/{n} 块")
@@ -260,6 +301,7 @@ def run_one_tower(car, tower_idx, is_last_tower=False):
         elif not is_last_tower:
             car.arm.move_y_position(DETECT_Y)            # 塔1末: 回检测姿势, 供前进下一塔
         # 最后一塔末: 只收X到安全位, 交还编排
+    return True, pos[0]
 
 
 def main():
@@ -268,14 +310,22 @@ def main():
         _check_detect_pose(car)              # 校验已在识别姿势; 独立跑时兜底摆回
 
         print("===== 第 1 个水塔 =====")
-        run_one_tower(car, tower_idx=0, is_last_tower=False)
+        ok1, _ = run_one_tower(car, tower_idx=0, is_last_tower=False)
 
-        # 塔间前进 (机械臂已在检测姿势: 塔1末块收完X/Y回-0.02, 无需再摆)
-        print(f"\n===== 前进 {TOWER_SPACING} m 到第 2 个水塔 =====")
-        car.move_for([TOWER_SPACING, 0, 0], max_velocities=CHASSIS_V)
+        # 塔间前进: 正常走 TOWER_SPACING(0.60); 保底跳塔走 RETRY_JUMP(0.52)
+        #   —— 0.52 是从档3停车位置(原停车点前 0.08m)到第二塔的固定距离, 0.08+0.52=0.60=塔间距
+        if ok1:
+            # 机械臂已在检测姿势: 塔1末块收完X/Y回-0.02, 无需再摆
+            print(f"\n===== 前进 {TOWER_SPACING} m 到第 2 个水塔 =====")
+            car.move_for([TOWER_SPACING, 0, 0], max_velocities=CHASSIS_V)
+        else:
+            print(f"\n===== 保底跳塔: 前进 {RETRY_JUMP} m 到第 2 个水塔 =====")
+            car.move_for([RETRY_JUMP, 0, 0], max_velocities=CHASSIS_V)
 
         print("===== 第 2 个水塔 =====")
-        run_one_tower(car, tower_idx=1, is_last_tower=True)
+        ok2, _ = run_one_tower(car, tower_idx=1, is_last_tower=True)
+        if not ok2:
+            print("[任务] 第二水塔保底未识别到, 跳过(完成)")
 
         print("\n全部完成 ✓")
         car.beep(); car.beep()

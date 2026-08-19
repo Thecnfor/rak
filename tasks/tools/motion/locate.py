@@ -38,6 +38,11 @@ def fwd_vx(arm_angle, cx_err, kp_y=0.22, sign_y=None):
     return sign_y * kp_y * cx_err
 
 
+# 底盘低速变增益: 比例输出低于 v_min(最低速度)时换用此大增益重新算,
+# 防止被 v_min 置零停在死区边缘(只在"速度低于最低速度"时启用, 正常段仍用原 kp)。
+KP_LOW_SPEED = 1.5
+
+
 class LocateMixin:
 
     def lane_det_location(
@@ -769,6 +774,14 @@ class LocateMixin:
             else:
                 vx = sign_y * kp_y * cx_err
                 vy = sign_x * kp_x * cy_err
+
+            # 低速增强(变增益): 比例输出低于最低速度 v_min 时(误差已小, 原输出会被
+            # v_min 置零停在死区边缘), 换大增益 KP_LOW_SPEED 重新算, 保持驱动力直到
+            # 真正进死区。只在"速度低于最低速度"时启用, 正常段仍用原 kp 不受影响。
+            if vx != 0.0 and abs(vx) < v_min:
+                vx = sign_y * KP_LOW_SPEED * cx_err
+            if vy != 0.0 and abs(vy) < v_min:
+                vy = sign_x * KP_LOW_SPEED * cy_err
 
             # v_max 限幅
             vx = max(-v_max, min(v_max, vx))
