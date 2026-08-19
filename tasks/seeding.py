@@ -91,15 +91,14 @@ def _ensure_hand(car, target=-20.0, retries=3, settle=0.5):
         time.sleep(settle)
 
 
-def _pick(car, label, pos=None):
+def _pick(car, label):
     """抓 cylinder_1/2/3: 右臂对齐吸嘴到筒正上方 → 下放吸起.
 
     对齐超时未收敛也不中断任务: 打印告警后仍按当前臂位继续下放抓取
     (NOZZLE setpoint 已标定, 未收敛多半只是差几个死区, 硬抓成功率更高)。
 
-    pos: 底盘纵向自记账(传 None 跳过底盘粗调)。对齐前先做底盘纵向粗调:
-      目标画面 cx 与吸嘴期望 cx 差 > FINE_TUNE_THRESHOLD 时, 车前后微调
-      (目标靠右→前进, 靠左→后退, 每次 0.05m), 再进视觉对齐。
+    注: 底盘前后粗调(advance/backup)只对 cylinder_set 预对位生效,
+    抓取 cylinder_1/2/3 不做底盘前后微调(见 _pre_align)。
 
     cylinder_2 专属规则(空底座误检成 cylinder_2):
       - 画面里 px>0.4 的 cylinder_2 一律视为底座: 不抓取、不锁定(伺服全程由 max_px 剔除)。
@@ -108,8 +107,6 @@ def _pick(car, label, pos=None):
     返回 True=已下放抓取 / False=判定为底座、跳过未抓。
     """
     _ensure_hand(car)  # ① 视觉对齐前: 强制末端到位
-    if pos is not None:  # ② 底盘纵向粗调: 目标 cx 偏差过大说明车没对到位, 前后微调再对齐
-        _chassis_fine_tune(car, label, NOZZLE[label][0], pos)
     max_px = lock_px = None
     if label == "cylinder_2":
         cy2 = [d for d in _dets(car) if d[2] == "cylinder_2"]
@@ -148,7 +145,7 @@ def _place(car):
     car.arm.move_y_position(PLACE_LIFT_Y)
 
 
-def _pre_align(car):
+def _pre_align(car, pos=None):
     """第1列预对位: 摆放苗姿势并伺服对齐槽标记, 记住此刻 4 轴放苗姿态.
 
     两段对齐(顺序固定, 后段不依赖前段成功, 都完赛优先):
@@ -183,6 +180,9 @@ def _pre_align(car):
         PLACE_POSE["x"], PLACE_POSE["y"], PLACE_POSE["arm"], PLACE_POSE["hand"]
     )
     _ensure_hand(car)  # 视觉对齐前: 强制末端到位
+    # 底盘纵向粗调(仅 cylinder_set 适用): 槽标记画面 cx 偏差过大 → 车前后微调再对齐
+    if pos is not None:
+        _chassis_fine_tune(car, MARKER, MARKER_NOZZLE[0], pos)
     # 左臂对齐 cylinder_set(放苗预对位): 锁定画面靠左的目标
     ok = car.arm_servo_align(
         MARKER, *MARKER_NOZZLE, prefer_left=True, min_score=SCORE_THRESHOLD, **PLACE_SERVO
@@ -219,6 +219,7 @@ def _chassis_fine_tune(car, label, expected_cx, pos, max_steps=FINE_TUNE_MAX):
     规则(播种侧视相机): 目标靠画面太右 → 车前进; 靠左 → 车后退。
     画面多个目标以最左那个为准(与偏好锁定的目标一致)。
     微调移动会同步更新 pos 自记账, 后续列定位不受影响。
+    仅 cylinder_set(放苗预对位)启用; cylinder_1/2/3 抓取不做底盘前后粗调。
     返回 True=已到位(无需再调) / False=调满 max_steps 仍超差(交给后续对齐兜底)。
     """
     for _ in range(max_steps):
@@ -246,7 +247,7 @@ def run(car):
         _chassis(car, SOURCE[col], pos)
         # 第1列: 先预对位槽标记, 记住放苗姿势(横向/大臂姿势全程通用, 只需一次)
         if place_pose is None:
-            place_pose = _pre_align(car)
+            place_pose = _pre_align(car, pos)
         # 摆抓取姿势
         car.arm.set_arm_pose(
             PICK_POSE["x"], PICK_POSE["y"], PICK_POSE["arm"], PICK_POSE["hand"]
@@ -263,7 +264,7 @@ def run(car):
             seen = label
         elif label == seen and seen in ("cylinder_1", "cylinder_3"):
             label = "cylinder_3" if seen == "cylinder_1" else "cylinder_1"
-        if not _pick(car, label, pos):
+        if not _pick(car, label):
             print(f"[播种] 列{col} 判定 {label} 为空底座/未抓取, 跳过本列(不放苗)")
             continue
         completed.append(label)
