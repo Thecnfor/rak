@@ -43,10 +43,10 @@ PICK_POSE_Y  = -0.180                        # 抓块姿态 y (servo_y)
 PICK_HAND    = -20                            # 抓块姿态手爪 (-10 )
 FIRST_CUBE_X, SECOND_CUBE_X = -0.145, -0.210 # 每块组内 第1/第2 块 X
 GRASP_Y, LIFT_Y = -0.065, -0.150             # 吸块下降 y / 吸完抬回 y
-DELIVER_Y    = [-0.020, -0.060, -0.090]      # 放块第1/2/3层 y (梯度)
+DELIVER_Y    = [-0.025, -0.065, -0.095]      # 放块第1/2/3层 y (梯度)
 DELIVER_HAND = [-85, -90, -90]               # 放块第1/2/3层手爪 (4_car -80/-85/-85 )
-CARRY_X      = [[-0.070, -0.065, -0.065],
-                [-0.070, -0.065, -0.065]]    # 每塔每块放块 X (m)
+CARRY_X      = [[-0.075, -0.070, -0.070],
+                [-0.075, -0.070, -0.070]]    # 每塔每块放块 X (m)
 
 # ----- 转大臂前 XY 安全位 (4_car 安全区 X∈[-300,-200] Y∈[-200,-90]mm; Y 用 -0.18 更高) -----
 SAFE_X, SAFE_Y = -0.200, -0.180
@@ -159,7 +159,7 @@ def _detect_water_num(car, timeout=1.0):
     return 0, None
 
 
-def _ensure_hand(car, target, retries=3, settle=0.5):
+def _ensure_hand(car, target, retries=2, settle=0.1):
     """末端 PWM 舵机无位置回读(只能发不能读), 以连发命令+等舵机到位时间+重试,
     覆盖丢帧/大电流复位, 确保末端确实在 target 角度再继续。
     用异步发(不等应答)降低对半双工总线的占用, 命令送达率更高。
@@ -213,8 +213,8 @@ def _servo_pick(car):
     _align_staged(car, TARGET_WATER, cx=PICK["cx"], cy=PICK["cy"],
                   coarse=PICK_COARSE, fine=PICK_FINE)
     _ensure_hand(car, -15)                 # 下降前: 末端转朝下 (+10, 现场标定)
+    car.arm.grasp(True)                    # 下降前先吸气(下降途中吸嘴已在吸)
     car.arm.move_y_position(GRASP_Y)      # 降到水块高度
-    car.arm.grasp(True)                   # 吸气吸住
     car.arm.move_y_position(LIFT_Y)       # 抬回运输高度
 
 
@@ -247,12 +247,10 @@ def run_one_tower(car, tower_idx, is_last_tower=False):
         # ===== 放 =====
         _chassis(car, pos, 0.0)                          # 底盘回塔
         car.arm.move_y_position(LIFT_Y)                  # 抓完抬回运输高(-0.15)
-        # 末端慢, 紧接 Y 抬升后立刻异步转: 与 X/Y 同步跑, 不等 X 移动完再转
-        car.arm.set_hand_angle_async(DELIVER_HAND[k], speed=80)
+        _ensure_hand(car, DELIVER_HAND[k])               # 抬升完先确保末端转到位(2×0.1s), 再动X/大臂
         car.arm.move_x_position(SAFE_X)                  # X回安全位
         car.arm.set_arm_angle(ARM_TOWER)                 # 摆大臂-93
         car.arm.goto_position(CARRY_X[tower_idx][k], DELIVER_Y[k])  # X/Y到投放位
-        _ensure_hand(car, DELIVER_HAND[k])               # 投放前: 末端强制到位
         car.arm.grasp(False)                             # 放气投放
         car.beep()
         # ===== 块间/塔末 回位 =====
