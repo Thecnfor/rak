@@ -185,13 +185,15 @@ class LocateMixin:
 
     def move_to_detection_target(
         self,
-        delta_x=0.02,
+        delta_x=0.0,
         delta_y: Union[float, None] = 0.0,
         label=None,
-        time_out=4.0,
+        time_out=6.0,
         sort_pos=(0, 0),
         num=0,
         score_thresh=None,
+        lock=False,
+        min_score=0.0,
     ):
         """
         前往目标位置
@@ -199,15 +201,17 @@ class LocateMixin:
         参数:
             cls_id : 指定检测目标的 cls_id，默认None为距离中心最近的目标
             time_out: 设置超时时间
-            score_thresh: 置信度下限, 透传给 get_detection_results; None 则不过滤
             包含目标检测信息的列表，格式为 [cls_id, obj_id,label, score, x_c, y_c, w, h]
+            lock: 锁定目标(按位置连续性跟踪)。对齐过程中画面偏移会改变距 sort_pos
+                  最近的动物, 选中会切换; 开启后每帧按距上次选中目标的位置排序选中,
+                  目标锁定不再漂移。
         """
         time_stop = time.time() + time_out
         x_count = CountRecord(3)
         y_count = CountRecord(3)
-
-        # pid_x.output_limits((-0.7, 0.7))
-
+        lock_pos = None  # 锁定目标位置 (x_c, y_c)
+    
+       
         out_x = 0
         out_y = 0
         # print(f"手柄方向：{self.arm.side}")
@@ -234,8 +238,16 @@ class LocateMixin:
             if label is not None:
                 dets = [item for item in dets if item[2] == label]
 
+            if min_score > 0:
+                dets = [item for item in dets if item[3] > min_score]
+
             if len(dets) > num:
                 det = dets[num]
+                # 锁定目标: 每帧更新为其当前位置, 后续帧按距它排序选中
+                if lock_pos is None:
+                    print(f"[锁定] animal score={det[3]:.2f} "
+                            f"pos=({det[4]:+.3f},{det[5]:+.3f})")
+                lock_pos = (det[4], det[5])
                 dx, dy = det[4:6]
                 err_x = delta_x - dx
                 if abs(err_x) < 0.015:
