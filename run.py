@@ -29,7 +29,7 @@ SKIP_TASKS: set = set()
 # 注意: x 合法范围 -0.315~0(m), y 合法范围 -0.2~0(m); 单位是米, 都是负方向!
 TASK_END_POSE = {
     "seeding": (-0.1, 0, "LEFT", "UP"),
-    "target_detection": (-0.3, 0, "RIGHT", "UP"),
+    "target_detection": (-0.2, -0.02, -93, -70),  # = 浇水识别水塔姿势, 浇水任务直接由此开始
     "watering": (0, 0, "LEFT", "UP"),
     "shooting": (-0.1, -0.1, "LEFT", "DOWN"),
     "harvesting": (-0.0, 0, "LEFT", "UP"),
