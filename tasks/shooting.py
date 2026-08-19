@@ -8,7 +8,7 @@ LANE_PID = dict(
     deadzone=0.05,              # da 死区: 直线噪声 ~0.1, 全局 0.0 未启用 -> 削掉
 )
 
-X_C_LIST = [0.35, 0.34, 0.34, 0.34]
+X_C_LIST = [0.34, 0.29, 0.29, 0.29]
 
 # 对齐窗口(宽): move_to_detection_target 只对齐 x_c 距目标站位在该范围内的 animal,
 # 需罩住入场位置, 偏窄会导致找不到候选而对齐空等超时。现场按摄像头视野标定。
@@ -38,7 +38,7 @@ def run(car, animal_list=None):  # noqa: E741
         for i, (v, _) in enumerate((x, 0.0) if isinstance(x, int) else x for x in animal_list)
     ]
     print("animal_list =", animal_list)
-    step = 0.14  # 每个目标间距
+    step = 0.12  # 每个目标间距
     relative_loc = []  # 记录相对运动距离
     hit_x = []  # 对应击打点动物的 x_c (target_detection 记录, 用于 sort_pos 选中该只)
     last_index = -1  # 记录上一个打击点的索引，初始为-1
@@ -63,7 +63,7 @@ def run(car, animal_list=None):  # noqa: E741
     car.arm.set_arm_pose(x=-0.25, y=-0.04)
     with car.lane_config(LANE_PID):
         car.move_to_detection_target(
-                delta_x=x_c, delta_y=None,label="animal",sort_pos=(-x_c, 0),
+                delta_x=x_c, delta_y=None,label="animal",sort_pos=(0, 0),
                 min_score=ANIMAL_CONF)  # 对齐 animal_list[0] (用它的 x_c 选中)
         knock_count = 0  # 已击倒数
         for dis, x_c in zip(relative_loc, hit_x):
