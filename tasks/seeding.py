@@ -21,12 +21,12 @@ CYLINDERS = ("cylinder_1", "cylinder_2", "cylinder_3")
 
 # ── 吸嘴 setpoint(目标在吸嘴正下方时 bbox 中心, 归一化) — 需重标 ──
 NOZZLE = {
-    "cylinder_1": (-0.050, -0.310),
-    "cylinder_2": (-0.142, -0.294),
+    "cylinder_1": (0.080, -0.310),
+    "cylinder_2": (-0.010, -0.294),
     "cylinder_3": (-0.009, -0.396),
 }
 MARKER = "cylinder_set"
-MARKER_NOZZLE = (-0.041, -0.346)
+MARKER_NOZZLE = (-0.000, -0.230)
 
 # ── 姿态(角度直读, 不用字符串; x/y 米) — 需重标 ────────────────────
 #    Y 轴方向: 向下为正, 0=最底, -0.2=最顶(抬升为负值, 与 arm_motion 标定一致)
@@ -34,7 +34,7 @@ MARKER_NOZZLE = (-0.041, -0.346)
 #    注: 末端"竖直向下"角度 2026-08-18 现场定为 -10(PICK/PLACE/_ensure_hand 均用 -10)。
 #    尺寸→槽(重要): cylinder_3=最大筒→槽1(最近), cylinder_2=中筒→槽2,
 #    cylinder_1=最小筒→槽3(最远); 即槽列位置从近到远 1/2/3 对应 大/中/小。
-PICK_POSE = dict(x=-0.03, y=-0.15, arm=-90, hand=-20)
+PICK_POSE = dict(x=-0.03, y=-0.15, arm=-91, hand=-20)
 PLACE_POSE = dict(x=-0.21, y=-0.15, arm=93, hand=-20)  # 机械臂预对位基准/放苗兜底
 CHASSIS_ALIGN_X = -0.26  # 仅底盘对齐阶段: 滑轨放更外侧, 便于把槽标拉进画面中心
 GRASP_Y, LIFT_Y = -0.01, -0.15  # 降至最底(0)吸 / 抬回(-0.15)
@@ -42,27 +42,44 @@ PLACE_Y, PLACE_LIFT_Y = -0.02, -0.15  # 放苗微降 / 释放后一步抬到 -0.
 
 MOVE_V = 0.1  # 底盘平移限速, 降漂移
 
+# ── 底盘纵向粗调: 目标画面 cx 与预期差过大 → 车前后微调再对齐 ─────────
+FINE_TUNE_THRESHOLD = 0.4   # cx 偏差超此值认为底盘没到位(停靠点太前/太后)
+FINE_TUNE_STEP = 0.05       # 单次前后微调距离 (m)
+FINE_TUNE_V = 0.10          # 微调速度 (m/s)
+FINE_TUNE_MAX = 2           # 最多微调次数
+
 
 # ── 伺服参数(抓/放分开, 来自 4_car task_config.yml) ───────────────────
 # sign 按现场最终确认双表全反(目标在左→该摆向RIGHT、目标在上→该左伸/右缩),
 # 现用值: PICK(-1,1), PLACE(-1,-1), 对齐超时 10s。debug=True 待收敛确认后再删。
 PICK_SERVO = dict(
-    gains=(0.25, 0.15), sign=(-1.0, 1.0), deadzone=0.02, timeout=15.0, debug=True
+    gains=(0.28, 0.18), sign=(-1.0, 1.0), deadzone=0.01, timeout=15.0, debug=True
 )
 PLACE_SERVO = dict(
-    gains=(0.25, 0.15), sign=(-1.0, -1.0), deadzone=0.03, timeout=15.0, debug=True
+    gains=(0.25, 0.15), sign=(-1.0, -1.0), deadzone=0.01, timeout=15.0, debug=True
 )
 
+# 画面出现多个目标时的最终决策(传给 arm_servo_align 的 final_rule):
+#   所有候选都先锁定(频闪/低置信度不丢), 再按下面规则选最终目标。
+#   'right'=靠右 / 'left'=靠左 / 'near'=靠近期望点; None=不启用(用 prefer 原逻辑)
+PICK_FINAL_RULE = None
+
 # ── 置信度过滤: 只认 90% 以上的目标, 滤掉低分误检(选列/对齐统一用) ──
-SCORE_THRESHOLD = 0.60
+SCORE_THRESHOLD = 0.50
+
+# ── 任务白名单: 播种只认这四类标签, 其余一律过滤, 不干扰决策 ──────────
+TASK_LABELS = ("cylinder_set", "cylinder_1", "cylinder_2", "cylinder_3")
+
+
+def _dets(car, max_age=0.3):
+    """侧视实时缓存, 只保留白名单四类且置信度达标的检测框(其余标签一律过滤)."""
+    return [d for d in car.get_realtime_detections(max_age=max_age)
+            if d[2] in TASK_LABELS and d[3] >= SCORE_THRESHOLD]
 
 
 def _has(car, label, max_age=0.3):
-    """只查不移动: 侧视实时缓存里是否存在该 label 目标(置信度≥SCORE_THRESHOLD, 供选列/兜底扫描用)."""
-    return any(
-        d[2] == label and d[3] >= SCORE_THRESHOLD
-        for d in car.get_realtime_detections(max_age=max_age)
-    )
+    """只查不移动: 侧视实时缓存里是否存在该 label 目标(白名单+置信度已过滤, 供选列/兜底扫描用)."""
+    return any(d[2] == label for d in _dets(car, max_age))
 
 
 def _ensure_hand(car, target=-20.0, retries=3, settle=0.5):
@@ -74,16 +91,43 @@ def _ensure_hand(car, target=-20.0, retries=3, settle=0.5):
         time.sleep(settle)
 
 
-def _pick(car, label):
+def _pick(car, label, pos=None):
     """抓 cylinder_1/2/3: 右臂对齐吸嘴到筒正上方 → 下放吸起.
 
     对齐超时未收敛也不中断任务: 打印告警后仍按当前臂位继续下放抓取
     (NOZZLE setpoint 已标定, 未收敛多半只是差几个死区, 硬抓成功率更高)。
+
+    pos: 底盘纵向自记账(传 None 跳过底盘粗调)。对齐前先做底盘纵向粗调:
+      目标画面 cx 与吸嘴期望 cx 差 > FINE_TUNE_THRESHOLD 时, 车前后微调
+      (目标靠右→前进, 靠左→后退, 每次 0.05m), 再进视觉对齐。
+
+    cylinder_2 专属规则(空底座误检成 cylinder_2):
+      - 画面里 px>0.4 的 cylinder_2 一律视为底座: 不抓取、不锁定(伺服全程由 max_px 剔除)。
+      - 剩余真目标里只抓最左边那个(lock_px 锁定, 无视 prefer 靠左/靠右)。
+      - 若全部 px>0.4(只剩底座) → 返回 False, 调用方跳过本列不抓不放苗。
+    返回 True=已下放抓取 / False=判定为底座、跳过未抓。
     """
     _ensure_hand(car)  # ① 视觉对齐前: 强制末端到位
+    if pos is not None:  # ② 底盘纵向粗调: 目标 cx 偏差过大说明车没对到位, 前后微调再对齐
+        _chassis_fine_tune(car, label, NOZZLE[label][0], pos)
+    max_px = lock_px = None
+    if label == "cylinder_2":
+        cy2 = [d for d in _dets(car) if d[2] == "cylinder_2"]
+        valid = [d for d in cy2 if d[4] <= 0.4]     # px>0.4 = 底座, 剔除
+        if not valid:
+            print("[抓取] cylinder_2 全部 px>0.4(空底座), 不抓取")
+            return False
+        valid.sort(key=lambda d: d[4])
+        # 未启用 final_rule 时锁最左真目标; 启用时交给 final_rule 多候选决策
+        if PICK_FINAL_RULE is None:
+            max_px, lock_px = 0.4, valid[0][4]      # 只锁最左边的真目标
+        else:
+            max_px = 0.4                            # 底座剔除仍生效, 最终决策交给 final_rule
     # 右臂对齐 cylinder_1/2/3(抓取): 锁定画面靠右的目标
     ok = car.arm_servo_align(
-        label, *NOZZLE[label], prefer_right=True, min_score=SCORE_THRESHOLD, **PICK_SERVO
+        label, *NOZZLE[label], prefer_right=True,
+        max_px=max_px, lock_px=lock_px, final_rule=PICK_FINAL_RULE,
+        min_score=SCORE_THRESHOLD, **PICK_SERVO
     )
     if not ok:
         print(f"[抓取] {label} 对齐未收敛, 继续按当前位下放抓取")
@@ -91,6 +135,7 @@ def _pick(car, label):
     car.arm.move_y_position(GRASP_Y)
     car.arm.grasp(True)
     car.arm.move_y_position(LIFT_Y)
+    return True
 
 
 def _place(car):
@@ -115,22 +160,24 @@ def _pre_align(car):
     后两列放苗直接复用。返回 (x, y, arm, hand) 四自由度姿态。
     预对位超时用 PLACE_POSE 默认值兜底, 不阻塞(完赛优先)。
     """
-    # ① 底盘对齐姿态: 滑轨放外侧, 视野敞开便于检测槽标记
-    car.arm.set_arm_pose(
-        CHASSIS_ALIGN_X, PLACE_POSE["y"], PLACE_POSE["arm"], PLACE_POSE["hand"]
-    )
-    # 手爪: 大臂摆位+滑轨连发瞬间首条 hand 命令易被总线竞争吞掉/未到位
-    # (实测底盘对齐阶段手爪停在 -90)。等臂稳后重发向下并给舵机到位时间。
-    time.sleep(0.5)
-    car.arm.set_hand_angle(PLACE_POSE["hand"])
-    time.sleep(0.5)
-    # ── 底盘对齐(新: sign 按大臂档位自动定 sign_y, kp/deadband/v_min 用 locate 新默认) ──
-    # 期望点 cx/cy 取吸嘴 setpoint(MARKER_NOZZLE), decouple_xy=True(默认), 多目标锁最左
-    ok_chassis = car.chassis_align(MARKER, cx=MARKER_NOZZLE[0], cy=MARKER_NOZZLE[1],
-                                   prefer_left=True, timeout=10.0)  # 车动, 槽标记居中; 超时/未对齐也继续预对位
-    # 底盘对齐轮系高频占总线, 手爪可能又被挤回, 补发一次
-    car.arm.set_hand_angle(PLACE_POSE["hand"])
-    print(f"底盘对齐槽标记: {'成功' if ok_chassis else '超时/未对齐, 继续预对位'}")
+    # # ① 底盘对齐姿态: 滑轨放外侧, 视野敞开便于检测槽标记
+    # car.arm.set_arm_pose(
+    #     CHASSIS_ALIGN_X, PLACE_POSE["y"], PLACE_POSE["arm"], PLACE_POSE["hand"]
+    # )
+    # # 手爪: 大臂摆位+滑轨连发瞬间首条 hand 命令易被总线竞争吞掉/未到位
+    # # (实测底盘对齐阶段手爪停在 -90)。等臂稳后重发向下并给舵机到位时间。
+    # time.sleep(0.5)
+    # car.arm.set_hand_angle(PLACE_POSE["hand"])
+    # time.sleep(0.5)
+    # # ── 底盘对齐(新: sign 按大臂档位自动定 sign_y, 横向符号现场探针自证 sign_x,
+    # #               kp/deadband/v_min 用 locate 新默认; 镜像 test_chassis_align.py --align) ──
+    # # 期望点 cx/cy 取吸嘴 setpoint(MARKER_NOZZLE), decouple_xy=True(默认), 多目标锁最左
+    # ok_chassis = car.chassis_align(MARKER, cx=MARKER_NOZZLE[0], cy=MARKER_NOZZLE[1],
+    #                                prefer_left=True, probe_sign_x=True,
+    #                                timeout=10.0)  # 车动, 槽标记居中; 超时/未对齐也继续预对位
+    # # 底盘对齐轮系高频占总线, 手爪可能又被挤回, 补发一次
+    # car.arm.set_hand_angle(PLACE_POSE["hand"])
+    # print(f"底盘对齐槽标记: {'成功' if ok_chassis else '超时/未对齐, 继续预对位'}")
     # ② 机械臂预对位: 车已粗对准, 把滑轨摆回 -0.2 基准再让臂精对位
     car.arm.set_arm_pose(
         PLACE_POSE["x"], PLACE_POSE["y"], PLACE_POSE["arm"], PLACE_POSE["hand"]
@@ -166,6 +213,30 @@ def _chassis(car, target, pos):
     pos[0] = target
 
 
+def _chassis_fine_tune(car, label, expected_cx, pos, max_steps=FINE_TUNE_MAX):
+    """底盘纵向粗调: 目标画面 cx 与预期差 > 阈值时, 车前后微调再对齐.
+
+    规则(播种侧视相机): 目标靠画面太右 → 车前进; 靠左 → 车后退。
+    画面多个目标以最左那个为准(与偏好锁定的目标一致)。
+    微调移动会同步更新 pos 自记账, 后续列定位不受影响。
+    返回 True=已到位(无需再调) / False=调满 max_steps 仍超差(交给后续对齐兜底)。
+    """
+    for _ in range(max_steps):
+        dets = [d for d in _dets(car) if d[2] == label]
+        if not dets:
+            return True
+        dets.sort(key=lambda d: d[4])
+        dev = dets[0][4] - expected_cx
+        if abs(dev) < FINE_TUNE_THRESHOLD:
+            return True
+        dx = FINE_TUNE_STEP if dev > 0 else -FINE_TUNE_STEP
+        print(f"[底盘粗调] {label} cx偏差{dev:+.3f}超{FINE_TUNE_THRESHOLD}: "
+              f"{'前进' if dx > 0 else '后退'} {FINE_TUNE_STEP:.2f}m")
+        car.move_for([dx, 0.0, 0.0], max_velocities=[FINE_TUNE_V, FINE_TUNE_V, math.pi / 3])
+        pos[0] += dx
+    return False
+
+
 def run(car):
     pos = [0.0]  # 底盘纵向自记账
     seen = None
@@ -192,7 +263,9 @@ def run(car):
             seen = label
         elif label == seen and seen in ("cylinder_1", "cylinder_3"):
             label = "cylinder_3" if seen == "cylinder_1" else "cylinder_1"
-        _pick(car, label)
+        if not _pick(car, label, pos):
+            print(f"[播种] 列{col} 判定 {label} 为空底座/未抓取, 跳过本列(不放苗)")
+            continue
         completed.append(label)
         # 放苗: 底盘到槽列 + 直接用第1列记住的放苗姿势(不再现场伺服)
         _chassis(car, SLOT[TARGET_SLOT[label]], pos)

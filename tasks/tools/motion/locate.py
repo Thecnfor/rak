@@ -378,6 +378,9 @@ class LocateMixin:
         persist_track=True,
         x_check=False,
         auto_sign=False,
+        max_px=None,
+        lock_px=None,
+        final_rule=None,
         debug=False,
     ):
         """机械臂视觉伺服对准: 把目标 label 对齐到画面期望点 (cx, cy)。
@@ -410,6 +413,14 @@ class LocateMixin:
                         滑轨有编码器可回读, 是判断"命令是否落地"的唯一轴, 兼作 X 顶墙侦察。
             auto_sign: True=进入闭环前做一次试探性滑轨微动, 读回位移方向, 与 sign_cy 预期不一致
                         时自动翻转滑轨符号并告警(换车/换相机后免人工重标该轴)。默认 False。
+            max_px: 候选框画面横坐标 d[4] > max_px 的直接剔除(视为底座/干扰, 永不锁定),
+                    默认 None 不过滤。与 prefer/cx 无关, 在一切挑选规则之前生效。
+            lock_px: 非 None 时强制只锁定画面横坐标最接近 lock_px 的同 label 目标,
+                    无视 prefer/滞回(任务层已选好目标, 如"两个 cylinder_2 只抓最左")。默认 None。
+            final_rule: 多候选跟踪+最终决策模式: 'right'=靠右 / 'left'=靠左 / 'near'=靠近期望点。
+                        启用后画面所有同 label 候选都先锁定(频闪/低置信度不丢, 短时缺席用
+                        记忆位置续锁, 0.5s 未再现才删), 每帧按该规则从候选集选最终目标对齐。
+                        None=关闭(用 prefer/滞回原逻辑)。默认 None。
             debug:    逐帧打印 px/py/误差/输出, 用于现场定方向符号(默认 False)
 
         返回:
@@ -425,6 +436,8 @@ class LocateMixin:
         seen_once = False
         # 滞回状态: 上一帧选中的目标位置(px), 下一帧若仍可见则优先续锁, 防多目标来回跳
         last_px = None
+        # 多候选跟踪集(final_rule 模式): px量化键 -> (px, py, 最近帧时刻)
+        tracks = {}
         # x_check 回读确认状态
         x_last_pos = None      # 上一次发命令前的滑轨位置
         x_cmd_sent = False     # 本帧是否发了非零滑轨速度
@@ -456,9 +469,11 @@ class LocateMixin:
                 for d in self.get_realtime_detections(max_age=max_age)
                 if d[2] == label and d[3] >= min_score
             ]
-            if not dets:
+            if not dets and (final_rule is None or not tracks):
                 # 缺帧不清零 lock_cnt(只不再累计), 避免偶发漏检导致永远锁不定;
                 # 已达成的锁定保持。hits(收敛计数)仍清零。
+                # multi 模式(final_rule 非 None)下 tracks 仍有记忆目标时不视为缺帧,
+                # 继续用记忆位置决策, 保证频闪目标不丢。
                 locked = True  # 已有锁定在缺帧时保持不降级
                 hits = 0
                 self.arm.x_speed(0)
@@ -475,21 +490,59 @@ class LocateMixin:
             if not locked:
                 locked = True
                 print(f"  [{label}] 已锁定({lock_cnt}帧), 开始追踪")
-            # 目标挑选: prefer_right 优先画面最右(px 最大), prefer_left 优先最左(px 最小),
-            # 否则默认取离期望点最近的。
-            # persist_track 滞回: 只要上一帧选中的目标仍在缓存里, 优先续锁它(即使它不再是
-            # 最左/最右/最近), 只有它消失才换目标——防止多目标下在几个目标间来回跳导致 hits 归零。
-            if persist_track and last_px is not None:
-                prev = [d for d in dets if abs(d[4] - last_px) < 0.02]
-                if prev:
-                    dets = prev
-            if prefer_right and not prefer_left:
-                dets.sort(key=lambda d: -d[4])
-            elif prefer_left:
-                dets.sort(key=lambda d: d[4])
+            # max_px 硬过滤: 画面横坐标超限的框视为底座/干扰, 先于一切规则剔除(永不锁定)。
+            if max_px is not None:
+                dets = [d for d in dets if d[4] <= max_px]
+            if final_rule is not None:
+                # ── 多候选跟踪 + 最终决策 ──
+                # 画面所有同 label 候选都先"锁定"(进 tracks, 频闪/低置信度不丢),
+                # 短时缺席用记忆位置续锁(0.5s 未再现才删); 每帧按 final_rule 从
+                # tracks 选最终目标: 'right'=靠右 / 'left'=靠左 / 'near'=靠近期望点。
+                now = time.monotonic()
+                for k in list(tracks):
+                    if now - tracks[k][2] > 0.5:
+                        del tracks[k]
+                for d in dets:
+                    tracks[round(d[4], 2)] = (d[4], d[5], now)
+                if not tracks:
+                    self.arm.x_speed(0)
+                    time.sleep(0.02)
+                    continue
+                items = list(tracks.values())
+                if final_rule == "right":
+                    items.sort(key=lambda t: -t[0])
+                elif final_rule == "left":
+                    items.sort(key=lambda t: t[0])
+                else:  # 'near': 靠近期望点
+                    items.sort(key=lambda t: (t[0] - cx) ** 2 + (t[1] - cy) ** 2)
+                px, py = items[0][0], items[0][1]
             else:
-                dets.sort(key=lambda d: (d[4] - cx) ** 2 + (d[5] - cy) ** 2)
-            px, py = dets[0][4], dets[0][5]
+                # 目标挑选: prefer_right 优先画面最右(px 最大), prefer_left 优先最左(px 最小),
+                # 否则默认取离期望点最近的。
+                if prefer_right and not prefer_left:
+                    dets.sort(key=lambda d: -d[4])
+                elif prefer_left:
+                    dets.sort(key=lambda d: d[4])
+                else:
+                    dets.sort(key=lambda d: (d[4] - cx) ** 2 + (d[5] - cy) ** 2)
+                # persist_track 滞回:
+                #   非 prefer 模式(最近期望点): 上一帧目标还在就续锁它, 防多目标来回跳(原行为)。
+                #   prefer 模式(靠左/靠右): 仅当上一帧目标仍是偏好目标(最左/最右)才续锁,
+                #     否则跟随 prefer 切目标——否则频闪目标一缺席, 会永久锁到非偏好目标上
+                #     (实车现象: 靠右却抓到左边高置信度目标)。
+                if persist_track and last_px is not None:
+                    if (prefer_right or prefer_left) and abs(dets[0][4] - last_px) >= 0.02:
+                        dets = dets[:1]   # 偏好目标已变, 取最左/最右, 不续锁旧目标
+                    else:
+                        prev = [d for d in dets if abs(d[4] - last_px) < 0.02]
+                        if prev:
+                            dets = prev
+                # lock_px 强制锁定: 任务层已选好目标(如两个 cylinder_2 抓最左),
+                # 锁定画面横坐标最接近 lock_px 的框, 无视上述 prefer/滞回一切规则。
+                if lock_px is not None:
+                    dets.sort(key=lambda d: abs(d[4] - lock_px))
+                    dets = dets[:1]
+                px, py = dets[0][4], dets[0][5]
             last_px = px
             e_cx, e_cy = cx - px, cy - py
             if abs(e_cx) < deadzone and abs(e_cy) < deadzone:
@@ -530,6 +583,44 @@ class LocateMixin:
               f" ({'全程未见目标' if not seen_once else '目标出现过但未进死区'})")
         return False
 
+    def _probe_sign_x(self, label, cy, probe_v=0.08, probe_dur=0.8, wait=5.0):
+        """横向符号现场探针: 打一小段车横向, 读 py 是否向 cy 靠拢, 自证 sign_x.
+
+        镜像 scripts/test_chassis_align.py --align 的 _probe_lateral(实车验证过的路径):
+        横向符号随大臂档位一起翻转、无法离线推, 只能上车打一发实测。
+        返回 ±1.0; 目标不可见/出框返回 None(调用方回退默认符号并告警)。
+        """
+        def _read():
+            end = time.time() + wait
+            while time.time() < end:
+                for d in self.get_realtime_detections(max_age=0.5):
+                    if d[2] == label:
+                        return d[4], d[5]
+                time.sleep(0.05)
+            return None, None
+
+        _, py = _read()
+        if py is None:
+            print(f"[底盘] 横向探针: {wait}s 内未见目标 {label}, 无法自证 sign_x")
+            return None
+        cy_err = cy - py
+        if abs(cy_err) < 1e-6:
+            print(f"  [底盘] 横向探针: py≈cy={cy:.3f} 已在期望, 取 sign_x=+1")
+            return 1.0
+        test_dir = 1.0 if cy_err > 0 else -1.0
+        self.set_velocity(0.0, probe_v * test_dir, 0.0)
+        time.sleep(probe_dur)
+        self.set_velocity(0.0, 0.0, 0.0)
+        time.sleep(0.3)
+        _, p1 = _read()
+        if p1 is None:
+            print("  [底盘] 横向探针期间目标消失, 无法自证 sign_x")
+            return None
+        conv = abs(cy - p1) < abs(cy - py)
+        print(f"  [底盘] 横向探针: py {py:.3f} → {p1:.3f} (Δ{p1 - py:+.3f}) → "
+              f"{'靠近' if conv else '远离'}cy={cy:.3f} → sign_x={'+1' if conv else '-1'}")
+        return 1.0 if conv else -1.0
+
     # ====================================================================
     # 底盘视觉对齐(车动, 目标保持画面中心)
     # ====================================================================
@@ -549,6 +640,7 @@ class LocateMixin:
         max_age=0.5,
         prefer_left=False,
         prefer_right=False,
+        probe_sign_x=False,
     ):
         """底盘视觉对齐: 移动底盘前后/左右, 把目标 label 对齐到画面期望点 (cx, cy)。
 
@@ -577,6 +669,10 @@ class LocateMixin:
             prefer_left: True=目标多时优先锁定画面最左侧那个(px 最小), 默认 False。
             prefer_right: True=目标多时优先锁定画面最右侧那个(px 最大), 默认 False。
                 两者互斥, 同 True 时 prefer_left 生效。语义同 arm_servo_align。
+            probe_sign_x: True=sign 为 None 且横向轴实际会驱动(kp[0]!=0)时, 进闭环前
+                先打一发横向探针现场自证 sign_x(镜像 test_chassis_align.py --align);
+                目标消失则回退 -1.0 并告警。横向符号随大臂档位翻转、离线推不了, 这是
+                唯一可靠来源, 默认 False(不想在任务中加探针动作可保持默认手动给 sign)。
 
         返回:
             bool: True=对齐到位(进死区 hold 帧), False=超时/急停
@@ -592,8 +688,16 @@ class LocateMixin:
         last_axis = None
         kp_x, kp_y = kp
         if sign is None:
-            # 双情况自动判: 前后符号按当前大臂档位; 横向符号无自动值, 取 -1.0
-            sign_x, sign_y = -1.0, resolve_fwd_sign(self.arm.angle)
+            # 双情况自动判: 前后符号按当前大臂档位; 横向符号默认取 -1.0,
+            # 横向轴实际会驱动(kp[0]!=0)且要求自证时, 现场探针判 sign_x
+            sign_y = resolve_fwd_sign(self.arm.angle)
+            if probe_sign_x and kp_x != 0.0:
+                sign_x = self._probe_sign_x(label, cy)
+                if sign_x is None:
+                    print("[底盘] 横向探针未决(目标消失), 回退 sign_x=-1.0")
+                    sign_x = -1.0
+            else:
+                sign_x = -1.0
         else:
             sign_x, sign_y = sign
         print(f"[底盘] 对齐 {label}: 期望点({cx},{cy}) deadband={deadband} 超时{timeout}s")
