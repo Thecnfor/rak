@@ -59,10 +59,21 @@ TRACK = dict(                                   # 底盘对齐水塔 (只前后)
     sign=(1.0, 1.0), deadband=0.02, hold=6,
     v_max=0.11, timeout=15.0,
 )
-PICK = dict(                                    # 机械臂伺服抓水块
-    cx=-0.045, cy=-0.545, gains=(0.13, 0.12),
-    sign=(-1.0, -1.0), deadzone=0.02, settle=6,   # 大臂-1/滑轨-1 (跟 seeding 抓取一致)
-    timeout=15.0,
+PICK = dict(                                    # 机械臂伺服抓水块(期望点)
+    cx=-0.045, cy=-0.545,                       # 大臂-1/滑轨-1 (跟 seeding 抓取一致)
+)
+# ----- 分段伺服参数(粗对齐→精对齐, 与 tasks/watering.py 同步) -----
+# 粗对齐: 大增益(0.70/0.50)快速把水块拉近 + 大死区(0.10), 4s 超时, settle 4 帧即粗到位,
+#         lock 5 帧首次锁定。
+# 精对齐: 小增益(0.15/0.15)小死区(0.02)精确收敛, 6s 超时, settle 4 帧,
+#         lock=1 不重新累计锁定帧, lock_px 锁粗对齐目标(不重新选)。
+PICK_COARSE = dict(
+    gains=(0.70, 0.50), sign=(-1.0, -1.0), deadzone=0.10, timeout=4.0,
+    settle=4, lock=5, debug=True,
+)
+PICK_FINE = dict(
+    gains=(0.15, 0.15), sign=(-1.0, -1.0), deadzone=0.02, timeout=6.0,
+    settle=4, lock=1, debug=True,
 )
 
 
@@ -158,13 +169,49 @@ def _ensure_hand(car, target, retries=3, settle=0.5):
         time.sleep(settle)
 
 
+def _align_staged(car, label, cx, cy, coarse, fine, prefer_left=False,
+                  prefer_right=False, max_px=None, lock_px=None,
+                  final_rule=None, px_range=None, min_score=0.0):
+    """分段视觉对齐: 粗对齐快拉近(大增益/大死区) → 精对齐精确收敛.
+    (照抄 seeding._align_staged, 与 tasks/watering.py 同步)
+
+    精对齐"追踪粗对齐的目标, 不重新选/不重新累计锁定帧":
+      - 任务层已传 lock_px 则沿用;
+      - 否则取粗对齐后最接近期望点的目标 px 作精对齐 lock_px,
+        精对齐每帧强制锁定它(lock=1 不累计, 立即续追)。
+    粗对齐超时也照进精对齐(完赛优先)。返回精对齐收敛状态。
+    """
+    ok_coarse = car.arm_servo_align(
+        label, cx, cy, prefer_left=prefer_left, prefer_right=prefer_right,
+        max_px=max_px, lock_px=lock_px, final_rule=final_rule,
+        px_range=px_range, min_score=min_score, **coarse
+    )
+    # 精对齐锁定目标: 任务层已锁则沿用; 否则取粗对齐后最接近期望点的目标
+    fine_lock = lock_px
+    if fine_lock is None:
+        dets = [d for d in car.get_realtime_detections(max_age=0.3)
+                if d[2] == label and d[3] >= min_score]
+        if px_range is not None:
+            dets = [d for d in dets if px_range[0] <= d[4] <= px_range[1]]
+        if dets:
+            fine_lock = min(
+                dets, key=lambda d: (abs(d[4] - cx) ** 2 + abs(d[5] - cy) ** 2)
+            )[4]
+        else:
+            fine_lock = cx
+    ok_fine = car.arm_servo_align(
+        label, cx, cy, prefer_left=prefer_left, prefer_right=prefer_right,
+        max_px=max_px, lock_px=fine_lock, final_rule=final_rule,
+        px_range=px_range, min_score=min_score, **fine
+    )
+    return ok_fine or ok_coarse
+
+
 def _servo_pick(car):
-    """车不动, 机械臂视觉伺服把水块对齐到 setpoint(0.098,-0.398) → 下探吸 → 抬回."""
+    """车不动, 机械臂视觉伺服把水块对齐到 setpoint → 下探吸 → 抬回."""
     _ensure_hand(car, PICK_HAND)          # 对齐前: 末端强制到位(抓块姿 0°)
-    car.arm_servo_align(TARGET_WATER, cx=PICK["cx"], cy=PICK["cy"],
-                        gains=PICK["gains"], sign=PICK["sign"],
-                        deadzone=PICK["deadzone"], settle=PICK["settle"],
-                        timeout=PICK["timeout"])
+    _align_staged(car, TARGET_WATER, cx=PICK["cx"], cy=PICK["cy"],
+                  coarse=PICK_COARSE, fine=PICK_FINE)
     _ensure_hand(car, -15)                 # 下降前: 末端转朝下 (+10, 现场标定)
     car.arm.move_y_position(GRASP_Y)      # 降到水块高度
     car.arm.grasp(True)                   # 吸气吸住
