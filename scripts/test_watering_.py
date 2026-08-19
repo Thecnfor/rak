@@ -25,7 +25,7 @@ from tasks.tools import create_car
 # ========================== 参数 (来自 4_car task_config.yml, mm→m 已换算) ==========================
 # ----- 底盘几何 -----
 TOWER_SPACING  = 0.60     # 两塔中心间距 (m)
-GROUP_FWD, GROUP_BACK = 0.35, 0.33   # 塔1向前/塔2向后 每组水块间距 (m)
+GROUP_FWD, GROUP_BACK = 0.34, 0.34   # 塔1向前/塔2向后 每组水块间距 (m)
 CHASSIS_V      = [0.10, 0.10, math.pi / 3]  # move_for 速度上限 [前后, 横向, 转角]
 
 # ----- 水塔等级标签 → 需搬水块数 -----
@@ -41,9 +41,9 @@ DETECT_Y     = -0.020                        # 识别水塔时的 y (检测高�
 DETECT_POSE  = dict(x=-0.200, y=DETECT_Y, arm=ARM_TOWER, hand=-70.0)  # 识别水塔姿势 (编排层预摆, 任务只校验)
 PICK_POSE_Y  = -0.180                        # 抓块姿态 y (servo_y)
 PICK_HAND    = -20                            # 抓块姿态手爪 (-10 )
-FIRST_CUBE_X, SECOND_CUBE_X = -0.145, -0.220 # 每块组内 第1/第2 块 X
-GRASP_Y, LIFT_Y = -0.060, -0.150             # 吸块下降 y / 吸完抬回 y
-DELIVER_Y    = [-0.20, -0.055, -0.085]      # 放块第1/2/3层 y (梯度)
+FIRST_CUBE_X, SECOND_CUBE_X = -0.145, -0.210 # 每块组内 第1/第2 块 X
+GRASP_Y, LIFT_Y = -0.065, -0.150             # 吸块下降 y / 吸完抬回 y
+DELIVER_Y    = [-0.020, -0.060, -0.090]      # 放块第1/2/3层 y (梯度)
 DELIVER_HAND = [-85, -90, -90]               # 放块第1/2/3层手爪 (4_car -80/-85/-85 )
 CARRY_X      = [[-0.070, -0.065, -0.065],
                 [-0.070, -0.065, -0.065]]    # 每塔每块放块 X (m)
@@ -55,13 +55,13 @@ SAFE_X, SAFE_Y = -0.200, -0.180
 #   kp=(左右增益, 前后增益); sign=(左右符号, 前后符号)。
 #   TRACK: kp_x=0=横向锁死, kp_y=0.22=只前后; sign_y=+1=前后方向(目标左→前进; 现场定, 反则正反馈越追越偏)
 TRACK = dict(                                   # 底盘对齐水塔 (只前后)
-    cx=0.060, cy=-0.460, kp=(0.0, 0.28),
-    sign=(1.0, 1.0), deadband=0.04, hold=6,
+    cx=0.060, cy=-0.460, kp=(0.0, 0.30),
+    sign=(1.0, 1.0), deadband=0.02, hold=6,
     v_max=0.11, timeout=15.0,
 )
 PICK = dict(                                    # 机械臂伺服抓水块
-    cx=-0.045, cy=-0.545, gains=(0.1, 0.09),
-    sign=(-1.0, -1.0), deadzone=0.04, settle=6,   # 大臂-1/滑轨-1 (跟 seeding 抓取一致)
+    cx=-0.045, cy=-0.545, gains=(0.13, 0.12),
+    sign=(-1.0, -1.0), deadzone=0.02, settle=6,   # 大臂-1/滑轨-1 (跟 seeding 抓取一致)
     timeout=15.0,
 )
 
@@ -200,9 +200,10 @@ def run_one_tower(car, tower_idx, is_last_tower=False):
         # ===== 放 =====
         _chassis(car, pos, 0.0)                          # 底盘回塔
         car.arm.move_y_position(LIFT_Y)                  # 抓完抬回运输高(-0.15)
-        car.arm.move_x_position(SAFE_X)                  # X回安全位
-        car.arm.set_arm_angle(ARM_TOWER)                 # 摆大臂-93 + 末端(同时)
+        # 末端慢, 紧接 Y 抬升后立刻异步转: 与 X/Y 同步跑, 不等 X 移动完再转
         car.arm.set_hand_angle_async(DELIVER_HAND[k], speed=80)
+        car.arm.move_x_position(SAFE_X)                  # X回安全位
+        car.arm.set_arm_angle(ARM_TOWER)                 # 摆大臂-93
         car.arm.goto_position(CARRY_X[tower_idx][k], DELIVER_Y[k])  # X/Y到投放位
         _ensure_hand(car, DELIVER_HAND[k])               # 投放前: 末端强制到位
         car.arm.grasp(False)                             # 放气投放
