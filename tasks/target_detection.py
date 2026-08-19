@@ -21,7 +21,7 @@ def run(car) -> list:
     with car.lane_config(LANE_PID):
         for i in range(4):
             cls_id, label = car.move_to_detection_target(
-                delta_x=0.0, delta_y=None, sort_pos=(0.2, 0)
+                delta_x=0.0, delta_y=None, sort_pos=(0,0),min_score=ANIMAL_CONF
             )
             time.sleep(0.2)
             if label == "animal":
@@ -36,11 +36,7 @@ def run(car) -> list:
                         print(f"第{i+1}个动物分析结果：{res}，{analysis}")
                         animal_list[i] = (res, det[4])
             time.sleep(0.2)
-            if i < 1:
-                car.lane_dis_offset(speed=0.2, dis_hold=0.12)
-            else:
-                car.move_distance([0.2, 0, 0], dis=0.12)
-
+            car.move_distance([0.2, 0, 0], dis=0.14)
         time.sleep(0.2)
         car.beep()
         car.get_distance(True)
