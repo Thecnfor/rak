@@ -31,7 +31,7 @@ def _knocked_down(car, x_c, range_=KNOCK_RANGE):
 def run(car, animal_list=None):  # noqa: E741
 
     if animal_list is None:
-        animal_list = [(1, 0.0)] * 4  # 外部未传时默认, x_c 用 X_C_LIST
+        animal_list = [1] * 4  # 外部未传时默认, x_c 用 X_C_LIST
     # 害/益 保留外部 value, x_c 一律用自己指定的 X_C_LIST (缺省兜底 0.44)
     animal_list = [
         (v, X_C_LIST[i]) if i < len(X_C_LIST) else (v, 0.34)
