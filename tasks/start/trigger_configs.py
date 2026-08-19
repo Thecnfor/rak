@@ -125,10 +125,10 @@ TASK_TRIGGER: Dict[str, Dict] = {
         "time_out": 300.0,
         "start_dist": 0.0,
         "lane": {  # 本路段巡线特调(每任务独立, 跑完自动还原)
-            "kp": 1.2,
+            "kp": 1.4,
             "kd": 0.0,
             "deadzone": 0.0,
-            "v_forward": 0.6,
+            "v_forward": 0.5,
         },
     },
     "shooting": {

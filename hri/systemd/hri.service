@@ -1,0 +1,55 @@
+[Unit]
+Description=HRI Human-Robot Interaction (control backend + Qt kiosk front-end)
+After=network-online.target graphical-session.target
+Wants=network-online.target graphical-session.target
+PartOf=graphical-session.target
+Documentation=file:///home/xrak/rak/hri/README.md
+
+[Service]
+Type=simple
+# 用户图形会话；需先启用用户 lingering
+#   sudo loginctl enable-linger xrak
+# 然后启用服务：
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now hri.service
+#
+# 环境变量（若需覆盖）：
+#   systemctl --user edit hri.service
+#   -> [Service]
+#      Environment="HRI_BACKEND_HOST=127.0.0.1"
+#      Environment="HRI_BACKEND_PORT=8500"
+#      Environment="DISPLAY=:0"
+#      Environment="QT_QPA_PLATFORM=xcb"
+# 无桌面 fb 模式：
+#      Environment="QT_QPA_PLATFORM=eglfs"
+#      Environment="QT_QPA_EGLFS_HIDECURSOR=1"
+#      Environment="QT_QPA_EGLFS_KMS_ATOMIC=1"
+
+# 触摸屏输入设备参数（示例，按实际改）：
+#   Environment="QT_QPA_EVDEV_TOUCHSCREEN_PARAMETERS=/dev/input/event2:rotate=0:invertx=0:inverty=0"
+
+Environment=PYTHONUNBUFFERED=1
+Environment=QT_QUICK_CONTROLS_MOBILE=1
+Environment=HRI_BACKEND_HOST=127.0.0.1
+Environment=HRI_BACKEND_PORT=8500
+
+WorkingDirectory=/home/xrak/rak
+ExecStart=/home/xrak/rak/hri/scripts/start_hri.sh --real
+Restart=on-failure
+RestartSec=3
+RestartPreventExitStatus=0 130
+# 启动失败连续 5 次 → 停止 60s 再试
+StartLimitIntervalSec=60
+StartLimitBurst=5
+StartLimitAction=reboot-force
+
+# 崩溃时 coredump（调试用）
+LimitCORE=infinity
+
+# 防止误触退出：只允许 SIGTERM 优雅停
+KillSignal=SIGTERM
+SendSIGKILL=yes
+TimeoutStopSec=15
+
+[Install]
+WantedBy=default.target

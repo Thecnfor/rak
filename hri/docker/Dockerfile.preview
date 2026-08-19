@@ -1,0 +1,32 @@
+# 本机预览容器 — x86_64 原生(快), Qt GUI 窗口通过 X11 直连宿主机显示屏
+# 彻底不用 VNC / noVNC: 容器内只是编译+运行 hri_app, 画面弹到宿主机屏幕
+# 与 Orin 同为 Ubuntu 22.04 + Qt 6.x, 视觉行为一致; 纯软件渲染, 不需要 GPU
+#
+# 构建/运行: 由根目录 docker-compose.yml 管理 (docker compose up -d)
+# 快速迭代: 改代码后 docker compose restart (entrypoint 自动增量重编并重启)
+
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV QT_QPA_PLATFORM=xcb
+ENV QT_QUICK_BACKEND=software
+
+# 构建工具 + Qt6 (与 Orin 同源 apt 版本) + 软件渲染 GL + X11 直通所需库 + 中文字体
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential cmake ninja-build pkg-config git \
+    qt6-base-dev qt6-base-dev-tools qt6-declarative-dev qt6-tools-dev qt6-qpa-plugins libqt6opengl6-dev \
+    qml6-module-qtquick qml6-module-qtquick-controls qml6-module-qtquick-layouts qml6-module-qtqml-workerscript \
+    qml6-module-qtquick-window qml6-module-qtquick-templates \
+    qml6-module-qt5compat-graphicaleffects \
+    libgl1-mesa-dev libgl1-mesa-dri libglvnd-dev \
+    libxkbcommon-dev libxkbcommon-x11-0 \
+    libxcb1-dev libxcb-cursor0 libxcb-xinerama0 libxcb-icccm4 \
+    libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 \
+    libxcb-shape0 libxcb-xfixes0 libxcb-xkb1 libx11-xcb1 libx11-dev libxext6 \
+    libfontconfig1 libfreetype6 \
+    fonts-noto-cjk \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+# 入口脚本直接引用挂载卷里的版本, 改脚本无需重建镜像
+ENTRYPOINT ["/workspace/docker/entrypoint.preview.sh"]

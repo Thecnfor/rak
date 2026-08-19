@@ -1,0 +1,21 @@
+# HRI 本地预览 — 容器内编译+运行, Qt 窗口 X11 直通宿主机屏幕 (无 VNC)
+services:
+  preview:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.preview
+    container_name: hri-preview
+    network_mode: "host"
+    ipc: host
+    volumes:
+      - .:/workspace                      # 源代码直接挂载, 改代码无需重建镜像
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw  # 宿主 X server socket (DISPLAY 直通)
+      - $HOME/.Xauthority:/tmp/.Xauthority:rw
+    environment:
+      - DISPLAY=${DISPLAY:-:0}
+      - XAUTHORITY=/tmp/.Xauthority
+      - QT_QPA_PLATFORM=xcb
+      - QT_QUICK_BACKEND=software
+      - QT_X11_NO_MITSHM=1
+      - XDG_RUNTIME_DIR=/tmp/runtime-root
+    restart: unless-stopped
