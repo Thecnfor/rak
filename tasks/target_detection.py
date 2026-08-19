@@ -10,8 +10,8 @@ LANE_PID = dict(
 ANIMAL_CONF = 0.85
 
 def run(car) -> list:
-    # 每元素 (害/益, x_c): 害=0 需击打, 益=1; x_c 为该站位动物的归一化横坐标
-    animal_list = [(0, 0.0)] * 4
+    # 每元素 害/益: 害=0 需击打, 益=1
+    animal_list = [0] * 4
     car._lane_v_min = 0.20
     car.arm.set_arm_pose(arm="LEFT", hand="UP")
     car.arm.set_arm_pose(x=-0.2, y=-0.05)
@@ -28,12 +28,11 @@ def run(car) -> list:
                 dets = car.get_detection_results()
                 high = [d for d in dets if d[2] == "animal" and d[3] > ANIMAL_CONF]
                 if high:
-                    det = min(high, key=lambda d: abs(d[4]))
                     res = car.animal_image_analysis()
                     if res is not None:
                         car.beep()
                         print(f"第{i+1}个动物分析结果：{res}")
-                        animal_list[i] = (res, det[4])
+                        animal_list[i] = res
             car.move_distance([0.2, 0, 0], dis=0.14)   # 阻塞定距
         car.beep()
         car.get_distance(True)
