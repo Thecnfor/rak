@@ -29,10 +29,10 @@ def run(car) -> list:
                 high = [d for d in dets if d[2] == "animal" and d[3] > ANIMAL_CONF]
                 if high:
                     det = min(high, key=lambda d: abs(d[4]))
-                    res, analysis = car.animal_image_analysis()
+                    res, _ = car.animal_image_analysis()
                     if res is not None:
                         car.beep()
-                        print(f"第{i+1}个动物分析结果：{res}，{analysis}")
+                        print(f"第{i+1}个动物分析结果：{res}")
                         animal_list[i] = (res, det[4])
             car.move_distance([0.2, 0, 0], dis=0.14)   # 阻塞定距
         car.beep()
