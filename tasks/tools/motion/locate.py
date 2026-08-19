@@ -374,6 +374,10 @@ class LocateMixin:
         timeout=7.0,
         max_age=0.3,
         min_score=0.0,
+        speed_cap=None,
+        persist_track=True,
+        x_check=False,
+        auto_sign=False,
         debug=False,
     ):
         """机械臂视觉伺服对准: 把目标 label 对齐到画面期望点 (cx, cy)。
@@ -397,6 +401,15 @@ class LocateMixin:
             timeout:  最大总时长(秒), 默认 7.0
             max_age:  后台缓存最大年龄(秒), 默认 0.3
             min_score: 目标置信度下限(score∈[0,1]), 低于此分的框不算目标; 默认 0.0 不过滤
+            speed_cap: 滑轨速度上限(m/s), 非 None 时启用"远端满速快走": 比例输出钳到 ±speed_cap,
+                        误差大时不再因 Kp 小慢吞吞, 只小误差才进比例段。默认 None=沿用原 Kp*err。
+            persist_track: True=目标多帧稳定时优先续锁上一帧选中的目标(滞回, 防多目标来回跳),
+                        仅当旧目标消失才按 prefer/最近规则换目标。默认 True。
+            x_check: True=滑轨命令加"回读确认": 发速度后隔帧读 x_get_position() 验证是否按
+                        预期动; 两次读都没动而命令非零则判定该帧丢失, 重发一次。默认 False。
+                        滑轨有编码器可回读, 是判断"命令是否落地"的唯一轴, 兼作 X 顶墙侦察。
+            auto_sign: True=进入闭环前做一次试探性滑轨微动, 读回位移方向, 与 sign_cy 预期不一致
+                        时自动翻转滑轨符号并告警(换车/换相机后免人工重标该轴)。默认 False。
             debug:    逐帧打印 px/py/误差/输出, 用于现场定方向符号(默认 False)
 
         返回:
@@ -410,6 +423,31 @@ class LocateMixin:
         lock_cnt = 0
         locked = False
         seen_once = False
+        # 滞回状态: 上一帧选中的目标位置(px), 下一帧若仍可见则优先续锁, 防多目标来回跳
+        last_px = None
+        # x_check 回读确认状态
+        x_last_pos = None      # 上一次发命令前的滑轨位置
+        x_cmd_sent = False     # 本帧是否发了非零滑轨速度
+        x_pending_retry = 0     # 待重发的滑轨速度(m/s), 0=无
+        if auto_sign:
+            # 试探性微动: 发一个已知方向的小速度一小段, 读回位移方向与 sign_cy 比对。
+            # 滑轨能回读(x_get_position), 是唯一能自证方向的轴; 大臂 PWM 舵机无回读, 只能人工。
+            probe_v = 0.05
+            p0 = self.arm.x_get_position()
+            self.arm.x_speed_async(probe_v)
+            time.sleep(0.2)
+            self.arm.x_speed(0)
+            time.sleep(0.05)
+            dp = self.arm.x_get_position() - p0
+            if abs(dp) < 1e-4:
+                print(f"[伺服] 滑轨自检: 微动无位移(疑似丢帧/顶墙), 未翻转符号, sign_cy 维持 {sign_cy}")
+            else:
+                want = probe_v if sign_cy > 0 else -probe_v
+                if (dp > 0) != (want > 0):
+                    sign_cy = -sign_cy
+                    print(f"[伺服] 滑轨自检: 实测方向 {dp:+.4f} 与预期反, sign_cy {sign} → {sign_cy}")
+                else:
+                    print(f"[伺服] 滑轨自检: 方向正确 (dp={dp:+.4f})")
         print(f"[伺服] 对齐 {label}: 期望点({cx},{cy}) deadzone={deadzone} 锁定{lock}帧 超时{timeout}s")
         while time.monotonic() < end:
             # 读后台缓存筛目标(多个时取离期望点最近的)
@@ -438,7 +476,13 @@ class LocateMixin:
                 locked = True
                 print(f"  [{label}] 已锁定({lock_cnt}帧), 开始追踪")
             # 目标挑选: prefer_right 优先画面最右(px 最大), prefer_left 优先最左(px 最小),
-            # 否则默认取离期望点最近的
+            # 否则默认取离期望点最近的。
+            # persist_track 滞回: 只要上一帧选中的目标仍在缓存里, 优先续锁它(即使它不再是
+            # 最左/最右/最近), 只有它消失才换目标——防止多目标下在几个目标间来回跳导致 hits 归零。
+            if persist_track and last_px is not None:
+                prev = [d for d in dets if abs(d[4] - last_px) < 0.02]
+                if prev:
+                    dets = prev
             if prefer_right and not prefer_left:
                 dets.sort(key=lambda d: -d[4])
             elif prefer_left:
@@ -446,6 +490,7 @@ class LocateMixin:
             else:
                 dets.sort(key=lambda d: (d[4] - cx) ** 2 + (d[5] - cy) ** 2)
             px, py = dets[0][4], dets[0][5]
+            last_px = px
             e_cx, e_cy = cx - px, cy - py
             if abs(e_cx) < deadzone and abs(e_cy) < deadzone:
                 hits += 1
@@ -455,14 +500,30 @@ class LocateMixin:
                     return True
             else:
                 hits = 0
+                # 滑轨速度: 原比例输出, 可选 speed_cap 做"远端满速快走"(误差大时不受 Kp 小限制)
+                vx = sign_cy * gain_cy * e_cy
+                if speed_cap is not None:
+                    vx = max(-speed_cap, min(speed_cap, vx))
+                # x_check 回读确认: 滑轨有编码器可回读, 是唯一能自证"命令是否落地"的轴。
+                # 上帧发了非零速度而本次读回位置几乎未变 → 判定该帧丢失 → 重发上帧速度。
+                if x_check:
+                    cur = self.arm.x_get_position()
+                    if x_cmd_sent and x_last_pos is not None and abs(x_pending_retry) > 1e-6:
+                        if abs(cur - x_last_pos) < 2e-4:
+                            self.arm.x_speed_async(x_pending_retry)
+                            if debug:
+                                print(f"  [{label}] 滑轨帧丢失重发 v={x_pending_retry:+.4f}")
+                    x_pending_retry = vx
+                    x_last_pos = cur
                 # 异步发帧(不阻塞等回包): XY 舵机同一条 MC602 总线, 同步发帧
                 # 在电机刷屏时极易被挤掉(实测手爪/大臂概率不动); 异步走 submit
                 # 排队, 掉帧率大降。
                 self.arm.set_arm_angle_async(self.arm.angle + sign_cx * gain_cx * e_cx)
-                self.arm.x_speed_async(sign_cy * gain_cy * e_cy)
+                self.arm.x_speed_async(vx)
+                x_cmd_sent = abs(vx) > 1e-6
                 if debug:
                     print(f"  [{label}] px={px:+.3f} py={py:+.3f} e_cx={e_cx:+.3f} e_cy={e_cy:+.3f}"
-                          f" → 臂{sign_cx * gain_cx * e_cx:+.2f}° 滑轨{sign_cy * gain_cy * e_cy:+.4f}m/s")
+                          f" → 臂{sign_cx * gain_cx * e_cx:+.2f}° 滑轨{vx:+.4f}m/s")
             time.sleep(0.03)
         self.arm.x_speed(0)
         print(f"[伺服] {label} 超时未收敛: 用时 {time.monotonic() - t0:.2f}s"
