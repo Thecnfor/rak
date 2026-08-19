@@ -49,9 +49,9 @@ class OcrErnieMixin:
         # 转 base64 字符串
         base64_image = base64.b64encode(img_encoded.tobytes()).decode("utf-8")
 
-        result, analysis = self.image_analysis.get_image_res(base64_image)
+        result = self.image_analysis.get_image_res(base64_image)
         print(f"image result: {result}")
-        return result, analysis
+        return result
 
     def get_det_ocr(self, det, label="name", time_out=5.0):
         time_stop = time.time() + time_out

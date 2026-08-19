@@ -29,7 +29,7 @@ def run(car) -> list:
                 high = [d for d in dets if d[2] == "animal" and d[3] > ANIMAL_CONF]
                 if high:
                     det = min(high, key=lambda d: abs(d[4]))
-                    res, _ = car.animal_image_analysis()
+                    res = car.animal_image_analysis()
                     if res is not None:
                         car.beep()
                         print(f"第{i+1}个动物分析结果：{res}")

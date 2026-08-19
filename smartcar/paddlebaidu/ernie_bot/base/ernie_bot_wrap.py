@@ -372,7 +372,7 @@ class ErnieBotWrap():
 				if poll_interval_s > 0 and attempt < max_rounds - 1:
 					time.sleep(poll_interval_s)
 
-		return None, None  # 全部失败，返回 None 让上层任务决定怎么处理
+		return None  # 全部失败，返回 None 让上层任务决定怎么处理
 
 
 	def get_res(self, str_input, record=False, request_timeout=5):
