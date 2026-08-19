@@ -9,7 +9,34 @@ from typing import Union
 from ..coords import norm_box_to_pixel
 from smartcar import PID, logger
 from smartcar.whalesbot.tools import CountRecord, get_yaml
- 
+
+
+# ================================================================
+# 大臂档位 → 前后符号 (双情况判定; 实车 --live 验证过, 测试见 scripts/test_chassis_align.py)
+# ================================================================
+def resolve_fwd_sign(arm_angle, calibrated=None):
+    """大臂角度档位 → 画面横向误差(cx)驱动车前后(vx)的符号.
+
+    竖拍(大臂≤-45°): 目标在画面左 → 车前进, 右 → 车后退 → +1
+    横拍(大臂≥+45°): 目标在画面左 → 车后退, 右 → 车前进 → -1
+    中间区(|arm|<45°)方向无定论 → 0.0(不自动驱动前后, 需人工给 sign)。
+    calibrated: 现场人工确认过的符号, 非 None 时优先返回。
+    """
+    if calibrated is not None:
+        return float(calibrated)
+    if arm_angle <= -45.0:
+        return 1.0
+    if arm_angle >= 45.0:
+        return -1.0
+    return 0.0
+
+
+def fwd_vx(arm_angle, cx_err, kp_y=0.22, sign_y=None):
+    """按大臂档位符号算车前后速度 vx = sign_y * kp_y * cx_err (镜像 chassis_align)."""
+    if sign_y is None:
+        sign_y = resolve_fwd_sign(arm_angle)
+    return sign_y * kp_y * cx_err
+
 
 class LocateMixin:
 
@@ -450,12 +477,12 @@ class LocateMixin:
         label,
         cx=0.0,
         cy=0.0,
-        kp=(0.10, 0.04),
-        sign=(-1.0, 1.0),
-        deadband=0.05,
+        kp=(0.15, 0.08),
+        sign=None,
+        deadband=0.03,
         hold=6,
         v_max=0.12,
-        v_min=0.01,
+        v_min=0.005,
         decouple_xy=True,
         timeout=7.0,
         max_age=0.5,
@@ -464,20 +491,24 @@ class LocateMixin:
     ):
         """底盘视觉对齐: 移动底盘前后/左右, 把目标 label 对齐到画面期望点 (cx, cy)。
 
-        读后台实时缓存(非阻塞), 横向误差(画面左右)→底盘左右横移(vx), 纵向误差(画面前后)→底盘前后(vy),
+        读后台实时缓存(非阻塞), 交叉映射: 画面横向误差 cx_err→车前后 vx、画面纵向误差
+        cy_err→车左右 vy (侧视相机竖拍, 画面横向=场地纵深、画面纵向=场地横向)。
         两轴误差都进死区并连续保持 hold 帧即对齐完成。适合"车未就位、需平移对准"
         的场景(放苗前把车对正槽标记 cylinder_set)。
 
         参数:
             label:    目标类别(必填), 如 cylinder_set / h_tu_dou
             cx, cy:   期望目标中心(归一化坐标, 默认 (0,0)=画面正中心)
-            kp:       (车左右增益, 车前后增益) 调灵敏度, 默认 (0.1, 0.1)
+            kp:       (车左右增益, 车前后增益) 调灵敏度, 默认 (0.15, 0.08)
             sign:     (车左右横移符号, 车前后符号); 交叉映射: 画面横向误差驱动车前后(vx,
-                      正=前进)、画面纵向误差驱动车左右(vy)。默认 (-1, 1) 表示目标在
-                      画面左侧→车前进、右侧→车后退, 目标在上方→车向左。
-            deadband: 两轴误差收敛死区, 默认 0.05
-            hold:     进死区需连续保持的帧数(20Hz), 默认 4
+                      正=前进)、画面纵向误差驱动车左右(vy)。None=自动: 前后符号按当前
+                      大臂档位 resolve_fwd_sign(arm.angle) 定(竖拍≤-45°→+1 目标左前进;
+                      横拍≥45°→-1 目标左后退; 中间区→0 前后不动), 横向符号无自动值取
+                      -1.0。显式传 (sign_x, sign_y) 时完全用传入值。
+            deadband: 两轴误差收敛死区, 默认 0.03
+            hold:     进死区需连续保持的帧数(20Hz), 默认 6
             v_max:    底盘速度上限(m/s), 默认 0.12
+            v_min:    输出死区(|v|<该值置0), 默认 0.005; 调大防抖/调小防静差
             decouple_xy: True=每帧只驱动误差较大单轴(防麦轮 45° 对角打滑);
                         False=两轴同时驱动(旧对角平移)
             timeout:  最大总时长(秒), 默认 7.0
@@ -499,7 +530,11 @@ class LocateMixin:
         # 麦轮防打滑: 轴滞回, |cx|≈|cy| 时保持上次驱动轴, 避免来回换轴晃
         last_axis = None
         kp_x, kp_y = kp
-        sign_x, sign_y = sign
+        if sign is None:
+            # 双情况自动判: 前后符号按当前大臂档位; 横向符号无自动值, 取 -1.0
+            sign_x, sign_y = -1.0, resolve_fwd_sign(self.arm.angle)
+        else:
+            sign_x, sign_y = sign
         print(f"[底盘] 对齐 {label}: 期望点({cx},{cy}) deadband={deadband} 超时{timeout}s")
         while True:
             if time.monotonic() > end:

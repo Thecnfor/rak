@@ -124,12 +124,11 @@ def _pre_align(car):
     time.sleep(0.5)
     car.arm.set_hand_angle(PLACE_POSE["hand"])
     time.sleep(0.5)
-    # ── 底盘对齐暂时禁用(调试): 直接跳过, 固定为成功, 进机械臂预对位 ──
-    # ok_chassis = car.chassis_align(MARKER, timeout=10.0)  # 车动, 槽标记居中; 15s 内一直检索, 不提前放弃
-    # # 底盘对齐轮系高频占总线, 手爪可能又被挤回, 补发一次
-    # car.arm.set_hand_angle(PLACE_POSE["hand"])
-    # print(f"底盘对齐槽标记: {'成功' if ok_chassis else '超时/未对齐, 继续预对位'}")
-    ok_chassis = True
+    # ── 底盘对齐(新: sign 按大臂档位自动定 sign_y, kp/deadband/v_min 用 locate 新默认) ──
+    ok_chassis = car.chassis_align(MARKER, timeout=10.0)  # 车动, 槽标记居中; 超时/未对齐也继续预对位
+    # 底盘对齐轮系高频占总线, 手爪可能又被挤回, 补发一次
+    car.arm.set_hand_angle(PLACE_POSE["hand"])
+    print(f"底盘对齐槽标记: {'成功' if ok_chassis else '超时/未对齐, 继续预对位'}")
     # ② 机械臂预对位: 车已粗对准, 把滑轨摆回 -0.2 基准再让臂精对位
     car.arm.set_arm_pose(
         PLACE_POSE["x"], PLACE_POSE["y"], PLACE_POSE["arm"], PLACE_POSE["hand"]

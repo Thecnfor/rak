@@ -51,9 +51,9 @@ SAFE_X, SAFE_Y = -0.200, -0.150
 # ----- 视觉伺服参数 (现场校准) -----
 #   kp=(左右增益, 前后增益); sign=(左右符号, 前后符号)。
 #   TRACK: kp_x=0=横向锁死, kp_y=0.22=只前后; sign_y=+1=前后方向(目标左→前进; 现场定, 反则正反馈越追越偏)
-TRACK = dict(                                   # 底盘对齐水塔 (只前后)
+TRACK = dict(                                   # 底盘对齐水塔 (只前后; sign 不传, 按大臂档位自动定)
     cx=0.055, cy=-0.490, kp=(0.0, 0.28),
-    sign=(1.0, 1.0), deadband=0.04, hold=6,
+    deadband=0.04, hold=6,
     v_max=0.10, timeout=15.0,
 )
 PICK = dict(                                    # 机械臂伺服抓水块
@@ -115,7 +115,7 @@ def _align_tower(car):
         return
     print(f"[底盘] 对齐目标: {label}")
     car.chassis_align(label, cx=TRACK["cx"], cy=TRACK["cy"],
-                      kp=TRACK["kp"], sign=TRACK["sign"],
+                      kp=TRACK["kp"],             # sign 不传 → 按大臂档位自动定(竖拍+1)
                       deadband=TRACK["deadband"], hold=TRACK["hold"],
                       v_max=TRACK["v_max"], decouple_xy=False,
                       timeout=TRACK["timeout"])
