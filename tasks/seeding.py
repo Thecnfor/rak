@@ -125,7 +125,9 @@ def _pre_align(car):
     car.arm.set_hand_angle(PLACE_POSE["hand"])
     time.sleep(0.5)
     # ── 底盘对齐(新: sign 按大臂档位自动定 sign_y, kp/deadband/v_min 用 locate 新默认) ──
-    ok_chassis = car.chassis_align(MARKER, timeout=10.0)  # 车动, 槽标记居中; 超时/未对齐也继续预对位
+    # 期望点 cx/cy 取吸嘴 setpoint(MARKER_NOZZLE), decouple_xy=True(默认), 多目标锁最左
+    ok_chassis = car.chassis_align(MARKER, cx=MARKER_NOZZLE[0], cy=MARKER_NOZZLE[1],
+                                   prefer_left=True, timeout=10.0)  # 车动, 槽标记居中; 超时/未对齐也继续预对位
     # 底盘对齐轮系高频占总线, 手爪可能又被挤回, 补发一次
     car.arm.set_hand_angle(PLACE_POSE["hand"])
     print(f"底盘对齐槽标记: {'成功' if ok_chassis else '超时/未对齐, 继续预对位'}")
