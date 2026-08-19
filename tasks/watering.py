@@ -56,19 +56,19 @@ PICK_HAND    = -20                            # 抓块姿态手爪 (-10 )
 FIRST_CUBE_X, SECOND_CUBE_X = -0.145, -0.210 # 每块组内 第1/第2 块 X
 GRASP_Y, LIFT_Y = -0.065, -0.150             # 吸块下降 y / 吸完抬回 y
 GRASP_HOLD = 0.4                              # 吸气位置停驻时长(秒), 吸稳再抬
-DELIVER_Y    = [-0.025, -0.065, -0.095]      # 放块第1/2/3层 y (梯度)
-DELIVER_HAND = [-85, -90, -90]               # 放块第1/2/3层手爪 (4_car -80/-85/-85 )
-CARRY_X      = [[-0.075, -0.070, -0.070],
-                [-0.075, -0.070, -0.070]]    # 每塔每块放块 X (m)
+DELIVER_Y    = [-0.030, -0.070, -0.100]      # 放块第1/2/3层 y (梯度)
+DELIVER_HAND = [-90, -95, -95]               # 放块第1/2/3层手爪
+CARRY_X      = [[-0.085, -0.080, -0.080],
+                [-0.085, -0.080, -0.080]]    # 每塔每块放块 X (m)
 
 # ----- 转大臂前 XY 安全位 (4_car 安全区 X∈[-300,-200] Y∈[-200,-90]mm; Y 用 -0.18 更高) -----
 SAFE_X, SAFE_Y = -0.200, -0.180
 
 # ----- 视觉伺服参数 (现场校准) -----
 #   kp=(左右增益, 前后增益); sign=(左右符号, 前后符号)。
-#   TRACK: kp_x=0=横向锁死, kp_y=0.22=只前后; sign_y=+1=前后方向(目标左→前进; 现场定, 反则正反馈越追越偏)
+#   TRACK: kp_x=0=横向锁死, kp_y=0.40=只前后; sign_y=+1=前后方向(目标左→前进; 现场定, 反则正反馈越追越偏)
 TRACK = dict(                                   # 底盘对齐水塔 (只前后)
-    cx=0.060, cy=-0.460, kp=(0.0, 0.60),
+    cx=0.060, cy=-0.460, kp=(0.0, 0.40),
     sign=(1.0, 1.0), deadband=0.01, hold=6,
     v_max=0.10, timeout=8.0,
 )
@@ -76,16 +76,16 @@ PICK = dict(                                    # 机械臂伺服抓水块(期�
     cx=-0.045, cy=-0.545,                       # 大臂-1/滑轨-1 (跟 seeding 抓取一致)
 )
 # ----- 分段伺服参数(粗对齐→精对齐, 照抄 seeding._align_staged 规则) -----
-# 粗对齐: 大增益(0.70/0.50)快速把水块拉近 + 大死区(0.10), 4s 超时, settle 4 帧即粗到位,
+# 粗对齐: 大增益(0.50/0.40)快速把水块拉近 + 大死区(0.10), 4s 超时, settle 4 帧即粗到位,
 #         lock 5 帧首次锁定。
-# 精对齐: 小增益(0.15/0.15)小死区(0.02)精确收敛, 6s 超时, settle 4 帧,
+# 精对齐: 小增益(0.10/0.10)小死区(0.02)精确收敛, 6s 超时, settle 4 帧,
 #         lock=1 不重新累计锁定帧, lock_px 锁粗对齐目标(不重新选)。
 PICK_COARSE = dict(
-    gains=(0.70, 0.50), sign=(-1.0, -1.0), deadzone=0.10, timeout=4.0,
+    gains=(0.50, 0.40), sign=(-1.0, -1.0), deadzone=0.10, timeout=4.0,
     settle=4, lock=5, debug=True,
 )
 PICK_FINE = dict(
-    gains=(0.15, 0.15), sign=(-1.0, -1.0), deadzone=0.02, timeout=6.0,
+    gains=(0.10, 0.10), sign=(-1.0, -1.0), deadzone=0.02, timeout=6.0,
     settle=4, lock=1, debug=True,
 )
 
@@ -299,8 +299,9 @@ def run_one_tower(car, tower_idx, is_last_tower=False):
         car.arm.move_y_position(LIFT_Y)                  # 抓完抬回运输高(-0.15)
         _ensure_hand(car, DELIVER_HAND[k])               # 抬升完先确保末端转到位(2×0.1s), 再动X/大臂
         car.arm.move_x_position(SAFE_X)                  # X回安全位
-        car.arm.set_arm_angle(ARM_TOWER)                 # 摆大臂-93
-        car.arm.goto_position(CARRY_X[tower_idx][k], DELIVER_Y[k])  # X/Y到投放位
+        car.arm.set_arm_angle(ARM_TOWER)                 # 先摆大臂-93
+        car.arm.move_y_position(DELIVER_Y[k])            # Y先下到投放位
+        car.arm.move_x_position(CARRY_X[tower_idx][k])   # X再伸到投放位
         car.arm.grasp(False)                             # 放气投放
         car.beep()
         # ===== 块间/塔末 回位 =====
@@ -318,11 +319,19 @@ def run(car):
     try:
         _check_detect_pose(car)              # 校验已在识别姿势; 不在则安全兜底摆回
 
-        # 进入任务点后中线对位: correction 模型(cfg.py CORR_THRESHOLD=0.02/CORR_WEIGHT=0.3)
-        # 巡线前进 1.5s(0.1m/s≈0.15m)把车拉到道路中间 → 停车 0.2s → 原路回退 0.15m,
-        # 回到入口位置但已居中, 再开始识别水塔
+        # 进入任务点后中线对位: correction 模型(steer 叠加)把车拉到道路中间。
+        # lane_base 恒速取 _lane_v_min(v_forward), 传入 speed 只当上限 —— 若只传
+        # speed=0.1 会按全局默认 0.6 m/s 冲(≈0.9m)再回 0.15m, 净进 0.75m 冲过入口;
+        # 必须用 lane_config 显式把 v_forward 压到 0.1, 并给低速专用温和转向 PID
+        # (全局 kp=6.5 在 0.1m/s 会蛇形) + 抬高中线叠加防抖阈值。
         print(f"\n===== 中线对位: 巡线前进 {CENTER_FWD_TIME}s ({CENTER_FWD_SPEED}m/s) =====")
-        car.lane_time(speed=CENTER_FWD_SPEED, time_dur=CENTER_FWD_TIME)
+        with car.lane_config(dict(
+            kp=1.0,                      # 低速专用转向 PID(全局 6.5 太冲)
+            v_forward=CENTER_FWD_SPEED,  # 真按 0.1m/s 恒速(恒速取 v_forward)
+            corr_threshold=0.05,         # 中线叠加防抖阈值抬高
+            corr_weight=0.2,             # 中线叠加强度减弱
+        )):
+            car.lane_time(speed=CENTER_FWD_SPEED, time_dur=CENTER_FWD_TIME)
         time.sleep(CENTER_HOLD)              # 停车 0.2s
         print(f"===== 原路回退 {CENTER_FWD_DIS}m =====")
         car.move_for([-CENTER_FWD_DIS, 0, 0], max_velocities=CHASSIS_V)

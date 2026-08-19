@@ -36,7 +36,8 @@ _TURN_LEFT_RAD = math.pi / 6
 TASK_END_POSE = {
     "seeding": (-0.1, -0.05, "LEFT", "UP"),
     "target_detection": (-0.3, -0.05, "RIGHT", "UP"),
-    "watering": (-0.0, -0.05, "LEFT", "UP"),
+    # X 保持安全位 -0.2(0 位移, 不往塔伸), Y 抬离 -0.15, 再转大臂 -93→+93 转离塔 → 不撞塔
+    "watering": (-0.2, -0.15, "LEFT", "UP"),
     "shooting": (-0.25, -0.2, "LEFT", "DOWN"),
     "harvesting": (-0.0, 0, "LEFT", "UP"),
     "sorting": (-0.3, -0.05, "RIGHT", "UP"),
