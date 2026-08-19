@@ -7,9 +7,9 @@
     vx = sign_y * kp_y * cx_err (sign_y = sign[1] = 前后符号)。
     侧视相机朝向随大臂转向切换, 同样"目标在画面左"对应相反的车体运动:
 
-      情况1 竖拍 (大臂≈-93, 末端≈-90):
+      情况1 竖拍 (大臂≈-93, 末端≈-70):
             目标在画面左 → 车前进, 目标在画面右 → 车后退   → sign_y = +1
-      情况2 横拍 (大臂≈+93, 末端 +10~-20, 即 > -30):
+      情况2 横拍 (大臂≈+93, 末端≈-20):
             目标在画面左 → 车后退, 目标在画面右 → 车前进   → sign_y = -1
 
 用法:
@@ -126,8 +126,8 @@ def run_check(src="local"):
 #   expect_toward=True  = 正确符号下前进会让目标朝画面中心靠拢
 #   expect_toward=False = 正确符号下前进会让目标远离(该档该后退)
 ARM_CASES = {
-    1: ("竖拍", dict(arm=-93, hand=-90, x=-0.20, y=-0.15, expect_toward=True)),
-    2: ("横拍", dict(arm=+93, hand=-10, x=-0.20, y=-0.15, expect_toward=False)),
+    1: ("竖拍", dict(x=-0.20, y=-0.02, arm=-93, hand=-70, expect_toward=True)),
+    2: ("横拍", dict(x=-0.22, y=-0.15, arm=+93, hand=-20, expect_toward=False)),
 }
 PROBE_V = 0.08   # 探针速度 (m/s); 0.8s ≈ 6.4cm, 安全小幅
 PROBE_DUR = 0.8
