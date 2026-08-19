@@ -44,7 +44,7 @@ MOVE_V = 0.1  # 底盘平移限速, 降漂移
 
 # ── 底盘纵向粗调: 目标画面 cx 与预期差过大 → 车前后微调再对齐 ─────────
 FINE_TUNE_THRESHOLD = 0.4   # cx 偏差超此值认为底盘没到位(停靠点太前/太后)
-FINE_TUNE_STEP = 0.05       # 单次前后微调距离 (m)
+FINE_TUNE_STEP = 0.09       # 单次前后微调距离 (m)
 FINE_TUNE_V = 0.10          # 微调速度 (m/s)
 FINE_TUNE_MAX = 2           # 最多微调次数
 
