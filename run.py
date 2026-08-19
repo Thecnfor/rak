@@ -18,12 +18,18 @@ from tasks.tools import create_car
 from tasks.orchestrator import Orchestrator
 from tasks.start.trigger_configs import TASK_ORDER
 
+import math
 import sys
 
 
 # 跳过这些任务(不跑巡线/钩子/钉姿势), 填 TASK_ORDER 里的任务名即可
 # SKIP_TASKS: set = set(["seeding", "target_detection", "watering", "shooting", "harvesting", "sorting", "ordering"])
 SKIP_TASKS: set = set()
+
+# 任务结束后向左转 60° (逆时针) 的任务 — 起步巡线前先调整朝向
+# move_for 第三分量 = 角度偏移, 正向逆时针; 60° = π/3
+_TURN_LEFT_TASKS = {"target_detection", "watering"}
+_TURN_LEFT_RAD = math.pi / 3
 
 # 每个任务结束后的机械臂位姿 (x, y, arm, hand) -- 手动调
 # 注意: x 合法范围 -0.315~0(m), y 合法范围 -0.2~0(m); 单位是米, 都是负方向!
@@ -52,6 +58,10 @@ def _pin_arm_and_reset(car, task_name):
     car.get_odometry(True)
     car.get_distance(True)
     print(f"[{task_name}] 里程计已重置")
+    # 部分任务结束后沿逆时针转 60° (起步巡线前先调整朝向)
+    if task_name in _TURN_LEFT_TASKS:
+        print(f"[{task_name}] 沿逆时针转 60° (起步巡线)")
+        car.move_for([0.0, 0.0, _TURN_LEFT_RAD], max_velocities=[0.10, 0.10, math.pi / 3])
 
 
 def main():
