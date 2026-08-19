@@ -6,6 +6,7 @@ import json
 import cv2
 import yaml
 import numpy as np
+import struct
 from threading import Thread
 import time
 import os
@@ -44,6 +45,18 @@ class InferServer:
         # 导入推理客户端的配置
         # configs = ClintInterface.configs
         configs = get_yaml('config_car.yml')['infer_cfg']
+
+        # 跳过名单(SMARTCAR_INFER_SKIP=lane,correction): 这些模型由 C++ 守护进程
+        # (cpp/inferd, 见 scripts/infer-cpp.service)接管对应端口, 本后端不再
+        # 加载/监听, 避免端口冲突 + 双份 GPU 显存。默认为空 = 行为与原先一致。
+        skip = set(
+            s.strip()
+            for s in os.environ.get("SMARTCAR_INFER_SKIP", "").split(",")
+            if s.strip()
+        )
+        if skip:
+            print(f"SMARTCAR_INFER_SKIP={sorted(skip)}: 这些模型不在本后端服务")
+        configs = [conf for conf in configs if conf['name'] not in skip]
         
         self.flag_infer_initok = False
     
@@ -129,14 +142,20 @@ class InferServer:
                     res = True
                 else:
                     res = False
+            elif head[:4] == b"rawi":
+                # raw 传输: b"rawi" + <II h, w> + BGR 连续像素字节(免 JPEG 编解码)
+                h, w = struct.unpack("<II", response[4:12])
+                img = np.frombuffer(response[12:], dtype=np.uint8).reshape(h, w, 3)
+                if self.flag_infer_initok:
+                    res = func(img)
             elif head == b"image":
-                # 把bytes转为jpg格式
+                # 把bytes转为jpg格式(旧路径, 兼容旧客户端)
                 img = cv2.imdecode(np.frombuffer(response[5:], dtype=np.uint8), 1)
                 if self.flag_infer_initok:
                     # res = self.lane_infer(img).tolist()
                     # lambda函数
                     res = func(img)
-                    
+
             json_data = json.dumps(res)
             json_data = bytes(json_data, encoding='utf-8')
             server.send(json_data)

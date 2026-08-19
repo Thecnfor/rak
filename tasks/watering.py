@@ -21,7 +21,7 @@ from tasks.tools import create_car
 
 # ========================== 参数 (来自 4_car task_config.yml, mm→m 已换算) ==========================
 # ----- 底盘几何 -----
-TOWER_SPACING  = 0.55      # 两塔中心间距 (m)
+TOWER_SPACING  = 0.59      # 两塔中心间距 (m)
 GROUP_FWD, GROUP_BACK = 0.35, 0.33   # 塔1向前/塔2向后 每组水块间距 (m)
 CHASSIS_V      = [0.10, 0.10, math.pi / 3]  # move_for 速度上限 [前后, 横向, 转角]
 
@@ -34,16 +34,16 @@ ARM_SHELF = +93   # 4_car +90: 朝置物架侧 (抓块)
 ARM_TOWER = -93   # 4_car -96: 朝水塔侧 (识别/投放)
 
 # ----- 姿态 (mm → m /1000) -----
-DETECT_POSE  = dict(x=-0.200, y=-0.150, arm=ARM_TOWER, hand=-60)  # 进塔/识别前姿态 (4_car -60 )
-DETECT_Y     = -0.010                        # 识别时 y 降到检测高度
+DETECT_POSE  = dict(x=-0.200, y=-0.150, arm=ARM_TOWER, hand=-70)  # 进塔/识别前姿态 (4_car -60 )
+DETECT_Y     = -0.020                        # 识别时 y 降到检测高度
 PICK_POSE_Y  = -0.150                        # 抓块姿态 y (servo_y)
-PICK_HAND    = 0                             # 抓块姿态手爪
+PICK_HAND    = -20.0                            # 抓块姿态手爪
 FIRST_CUBE_X, SECOND_CUBE_X = -0.145, -0.220 # 每块组内 第1/第2 块 X
-GRASP_Y, LIFT_Y = -0.050, -0.150             # 吸块下降 y / 吸完抬回 y
-DELIVER_Y    = [-0.010, -0.045, -0.085]      # 放块第1/2/3层 y (梯度)
-DELIVER_HAND = [-80, -85, -85]               # 放块第1/2/3层手爪 (4_car -80/-85/-85 )
-CARRY_X      = [[-0.060, -0.055, -0.055],
-                [-0.060, -0.055, -0.055]]    # 每塔每块放块 X (m)
+GRASP_Y, LIFT_Y = -0.055, -0.150             # 吸块下降 y / 吸完抬回 y
+DELIVER_Y    = [-0.020, -0.055, -0.085]      # 放块第1/2/3层 y (梯度)
+DELIVER_HAND = [-85, -90, -90]               # 放块第1/2/3层手爪 (4_car -80/-85/-85 )
+CARRY_X      = [[-0.070, -0.065, -0.065],
+                [-0.070, -0.065, -0.065]]    # 每塔每块放块 X (m)
 
 # ----- 转大臂前 XY 安全位 (4_car 安全区 X∈[-300,-200] Y∈[-200,-90]mm) -----
 SAFE_X, SAFE_Y = -0.200, -0.150
@@ -52,13 +52,13 @@ SAFE_X, SAFE_Y = -0.200, -0.150
 #   kp=(左右增益, 前后增益); sign=(左右符号, 前后符号)。
 #   TRACK: kp_x=0=横向锁死, kp_y=0.22=只前后; sign_y=+1=前后方向(目标左→前进; 现场定, 反则正反馈越追越偏)
 TRACK = dict(                                   # 底盘对齐水塔 (只前后)
-    cx=0.142, cy=0.183, kp=(0.0, 0.22),
+    cx=0.055, cy=-0.490, kp=(0.0, 0.28),
     sign=(1.0, 1.0), deadband=0.04, hold=6,
-    v_max=0.11, timeout=15.0,
+    v_max=0.10, timeout=15.0,
 )
 PICK = dict(                                    # 机械臂伺服抓水块
-    cx=0.098, cy=-0.398, gains=(0.1, 0.05),
-    sign=(-1.0, -1.0), deadzone=0.04, settle=6,   # 大臂-1/滑轨+1 (跟 seeding 抓取一致)
+    cx=-0.030, cy=-0.546, gains=(0.12, 0.06),
+    sign=(-1.0, -1.0), deadzone=0.04, settle=6,   # 大臂-1/滑轨-1 
     timeout=15.0,
 )
 
@@ -101,17 +101,17 @@ def _find_water_label(car, max_age=0.5):
 
 
 def _align_tower(car):
-    """底盘视觉对齐水塔: 目标取实时缓存里任一可见水标签(先等 1.5s 让其出现),
-    只前后(横向锁死), 拉到 setpoint(0.142,0.183)."""
-    end = time.time() + 1.5
+    """底盘视觉对齐水塔: 目标取实时缓存里任一可见水标签(先等 1.8s 让其出现),
+    只前后(横向锁死),"""
+    end = time.time() + 1.8
     label = None
     while time.time() < end:
         label = _find_water_label(car)
         if label is not None:
             break
-        time.sleep(0.05)
+        time.sleep(0.02)
     if label is None:
-        print("[底盘] 1.5s 内未见任何水标签, 跳过对齐")
+        print("[底盘] 1.8s 内未见任何水标签, 跳过对齐")
         return
     print(f"[底盘] 对齐目标: {label}")
     car.chassis_align(label, cx=TRACK["cx"], cy=TRACK["cy"],
@@ -121,14 +121,14 @@ def _align_tower(car):
                       timeout=TRACK["timeout"])
 
 
-def _detect_water_num(car, timeout=1.0):
+def _detect_water_num(car, timeout=0.2):
     """从侧视实时缓存识别水塔等级标 water_l*, 返回需搬块数(没识别到返回 0)."""
     end = time.time() + timeout
     while time.time() < end:
         for d in car.get_realtime_detections(max_age=0.5):
             if d[2] in WATER_LABEL:
                 return WATER_LABEL[d[2]], d[2]
-        time.sleep(0.05)
+        time.sleep(0.01)
     return 0, None
 
 
@@ -144,12 +144,12 @@ def _ensure_hand(car, target, retries=3, settle=0.5):
 
 def _servo_pick(car):
     """车不动, 机械臂视觉伺服把水块对齐到 setpoint(0.098,-0.398) → 下探吸 → 抬回."""
-    _ensure_hand(car, PICK_HAND)          # 对齐前: 末端强制到位(抓块姿 0°)
+    _ensure_hand(car, PICK_HAND)          # 对齐前: 末端强制到位(抓块姿 )
     car.arm_servo_align(TARGET_WATER, cx=PICK["cx"], cy=PICK["cy"],
                         gains=PICK["gains"], sign=PICK["sign"],
                         deadzone=PICK["deadzone"], settle=PICK["settle"],
                         timeout=PICK["timeout"])
-    _ensure_hand(car, 0)                 # 下降前: 末端转朝下 0
+    _ensure_hand(car, -15.0)                 # 下降前: 末端转朝下 0
     car.arm.move_y_position(GRASP_Y)      # 降到水块高度
     car.arm.grasp(True)                   # 吸气吸住
     car.arm.move_y_position(LIFT_Y)       # 抬回运输高度

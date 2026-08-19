@@ -80,7 +80,9 @@ class Orchestrator:
         """独立线程轮询按键，把短按事件写入内部队列（1~4）。"""
         while self.running:
             try:
-                event = self._key.get_btn()
+                # read(): 0=无事件, 1~12=事件码(短按1~4/长按5~8/连按9~12);
+                # Key4Btn 没有 get_btn, 只有 read() 才分发给后端 get_btn
+                event = self._key.read()
                 if event and event <= 4:
                     with self._key_lock:
                         self._key_queue.append(event)

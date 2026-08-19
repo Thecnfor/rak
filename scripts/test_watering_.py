@@ -12,9 +12,6 @@ Task2 (watering) 浇水 —— 移植 4_car task2_water_tower 主干(精简串�
   · 大臂 4_car 度数(+90/-96) → 本仓库物理角度, 按场景映射:
         +90(init/pick 朝置物架侧) → +93
         -96(detection/carry 朝水塔侧) → -93
-        ⚠️ 物理对应需现场验证
-  · 砍掉 4_car 的 3阶段安全转位/X补走校验/视觉超时重试/并发, 只留主干
-  · 底盘×机械臂全串行(单 MC602 总线防丢命令)
   · 转大臂前 XY 先到安全位(4_car 安全区 X∈[-300,-200] Y∈[-200,-90]mm)
 
 运行: python scripts/test_watering_.py
@@ -27,7 +24,7 @@ from tasks.tools import create_car
 
 # ========================== 参数 (来自 4_car task_config.yml, mm→m 已换算) ==========================
 # ----- 底盘几何 -----
-TOWER_SPACING  = 0.55      # 两塔中心间距 (m)
+TOWER_SPACING  = 0.60     # 两塔中心间距 (m)
 GROUP_FWD, GROUP_BACK = 0.35, 0.33   # 塔1向前/塔2向后 每组水块间距 (m)
 CHASSIS_V      = [0.10, 0.10, math.pi / 3]  # move_for 速度上限 [前后, 横向, 转角]
 
@@ -40,16 +37,16 @@ ARM_SHELF = +93   # 4_car +90: 朝置物架侧 (抓块)
 ARM_TOWER = -93   # 4_car -96: 朝水塔侧 (识别/投放)
 
 # ----- 姿态 (mm → m /1000) -----
-DETECT_POSE  = dict(x=-0.200, y=-0.150, arm=ARM_TOWER, hand=-60)  # 进塔/识别前姿态 (4_car -60 现场+10)
-DETECT_Y     = -0.010                        # 识别时 y 降到检测高度
+DETECT_POSE  = dict(x=-0.200, y=-0.150, arm=ARM_TOWER, hand=-70)  # 进塔/识别前姿态 (-60 )
+DETECT_Y     = -0.020                        # 识别时 y 降到检测高度
 PICK_POSE_Y  = -0.150                        # 抓块姿态 y (servo_y)
-PICK_HAND    = 0                             # 抓块姿态手爪 (4_car -10 现场+10)
+PICK_HAND    = -20                            # 抓块姿态手爪 (-10 )
 FIRST_CUBE_X, SECOND_CUBE_X = -0.145, -0.220 # 每块组内 第1/第2 块 X
 GRASP_Y, LIFT_Y = -0.050, -0.150             # 吸块下降 y / 吸完抬回 y
-DELIVER_Y    = [-0.010, -0.045, -0.085]      # 放块第1/2/3层 y (梯度)
-DELIVER_HAND = [-80, -85, -85]               # 放块第1/2/3层手爪 (4_car -80/-85/-85 现场+10)
-CARRY_X      = [[-0.060, -0.055, -0.055],
-                [-0.060, -0.055, -0.055]]    # 每塔每块放块 X (m)
+DELIVER_Y    = [-0.20, -0.055, -0.085]      # 放块第1/2/3层 y (梯度)
+DELIVER_HAND = [-85, -90, -90]               # 放块第1/2/3层手爪 (4_car -80/-85/-85 )
+CARRY_X      = [[-0.070, -0.065, -0.065],
+                [-0.070, -0.065, -0.065]]    # 每塔每块放块 X (m)
 
 # ----- 转大臂前 XY 安全位 (4_car 安全区 X∈[-300,-200] Y∈[-200,-90]mm) -----
 SAFE_X, SAFE_Y = -0.200, -0.150
@@ -58,12 +55,12 @@ SAFE_X, SAFE_Y = -0.200, -0.150
 #   kp=(左右增益, 前后增益); sign=(左右符号, 前后符号)。
 #   TRACK: kp_x=0=横向锁死, kp_y=0.22=只前后; sign_y=+1=前后方向(目标左→前进; 现场定, 反则正反馈越追越偏)
 TRACK = dict(                                   # 底盘对齐水塔 (只前后)
-    cx=0.142, cy=0.183, kp=(0.0, 0.22),
+    cx=0.142, cy=0.183, kp=(0.0, 0.28),
     sign=(1.0, 1.0), deadband=0.04, hold=6,
     v_max=0.11, timeout=15.0,
 )
 PICK = dict(                                    # 机械臂伺服抓水块
-    cx=0.098, cy=-0.398, gains=(0.1, 0.05),
+    cx=0.098, cy=-0.398, gains=(0.1, 0.09),
     sign=(-1.0, -1.0), deadzone=0.04, settle=6,   # 大臂-1/滑轨+1 (跟 seeding 抓取一致)
     timeout=15.0,
 )
@@ -93,11 +90,11 @@ def _arm_to(car, x, y, arm, hand):
 
 
 # 底盘对齐/识别都算"水"的标签: water(塔/水块) 或 water_l*(等级标), 哪个可见用哪个
-WATER_ALIGN_LABELS = ("water", "water_l1", "water_l2", "water_l3")
+WATER_ALIGN_LABELS = ("water_l1", "water_l2", "water_l3")
 
 
 def _find_water_label(car, max_age=0.5):
-    """取实时缓存里任一可见的水标签作为对齐目标(water 或 water_l* 都算)."""
+    """取实时缓存里任一可见的水标签作为对齐目标(water_l* )."""
     for d in car.get_realtime_detections(max_age=max_age):
         if d[2] in WATER_ALIGN_LABELS:
             return d[2]
@@ -153,7 +150,7 @@ def _servo_pick(car):
                         gains=PICK["gains"], sign=PICK["sign"],
                         deadzone=PICK["deadzone"], settle=PICK["settle"],
                         timeout=PICK["timeout"])
-    _ensure_hand(car, 10)                 # 下降前: 末端转朝下 (+10, 现场标定)
+    _ensure_hand(car, -15)                 # 下降前: 末端转朝下 (+10, 现场标定)
     car.arm.move_y_position(GRASP_Y)      # 降到水块高度
     car.arm.grasp(True)                   # 吸气吸住
     car.arm.move_y_position(LIFT_Y)       # 抬回运输高度

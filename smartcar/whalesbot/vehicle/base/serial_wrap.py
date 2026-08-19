@@ -54,6 +54,21 @@ class SerialWrap(serial.Serial):
             rtscts=False,
             dsrdtr=False,
         )
+        # rtd 模式: 串口由 C++ 守护进程独占, 本进程所有设备命令走 ZMQ 透传。
+        # serial.Serial 已以 port=None 初始化(未打开任何设备), 直接换成 IPC 引擎。
+        if os.environ.get("SMARTCAR_RTD", "") == "1":
+            from .rtd_client import RtdSerialEngine, shared_rtd
+
+            rtd = shared_rtd()
+            if rtd is not None:
+                self.engine = RtdSerialEngine(rtd)
+                # dev 仅作元数据(controller_wrap.get_devid 读 name 定 ctl_id,
+                # rtd 只支持 MC602); 帧化/收发全部在守护进程侧完成
+                self.dev = MC602()
+                logger.info("SMARTCAR_RTD=1: 串口由 rtd 守护进程接管, 本进程走 ZMQ 透传")
+                return
+            logger.warning("SMARTCAR_RTD=1 但 rtd 客户端初始化失败, 回退本地串口")
+
         mc601 = MC601()
         mc602_usb = MC602()
         mc602_wireness = MC602Wireness()

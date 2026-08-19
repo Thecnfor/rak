@@ -350,9 +350,18 @@ class MecanumDriver:
         # 初始化偏移量接口
         self.offset = _OffsetGroup(self)
         self._stop_thread = False
-        self.odometry_thread = threading.Thread(target=self.update_odometry_thread)
-        self.odometry_thread.daemon = True  # 守护线程，程序结束时自动退出
-        self.odometry_thread.start()
+        # rtd 模式: 里程计/速度/位置闭环由 C++ 守护进程负责(SMARTCAR_RTD=1),
+        # 本地不再起 50Hz 编码器轮询线程; set_velocity/get_odometry/move_to_position
+        # 等方法在运行时委托给 rtd(见各方法内的 _rtd 分支)。
+        from ..base.rtd_client import shared_rtd
+
+        self._rtd = shared_rtd()
+        if self._rtd is None:
+            self.odometry_thread = threading.Thread(target=self.update_odometry_thread)
+            self.odometry_thread.daemon = True  # 守护线程，程序结束时自动退出
+            self.odometry_thread.start()
+        else:
+            self.odometry_thread = None
 
     def load_config(self, config_file):
         """
@@ -412,6 +421,10 @@ class MecanumDriver:
             z: theta角度
             distance: 前进的距离
         """
+        if self._rtd is not None:
+            # rtd 模式: 里程计在守护进程侧, 委托 reset(字段缺省=保持原值)
+            self._rtd.reset_odom(x, y, z, distance)
+            return
         with self._lock:
             self.chassis.odometry.reset(x, y, z, distance)
 
@@ -450,6 +463,10 @@ class MecanumDriver:
             y: y轴线速度
             z: 角速度
         """
+        if self._rtd is not None:
+            # rtd 模式: 速度命令发给守护进程(其内部做同样的逆解+限幅+上线)
+            self._rtd.vel(x, y, z)
+            return
         # 根据速度计算四个轮子速度
         wheel_linear_velocities = self.chassis.calculate_wheel_velocities(x, y, z)
         # 设置轮子线速度
@@ -529,12 +546,16 @@ class MecanumDriver:
         返回:
             numpy.ndarray: 当前位姿 [x, y, theta]
         """
-        with self._lock:
-            if show_info:
-                logger.info(
-                    f"当前位姿: [{self.chassis.odometry.position[0]:.4f}, {self.chassis.odometry.position[1]:.4f}, {self.chassis.odometry.position[2]:.4f}]"
-                )
-            return self.chassis.odometry.position.copy()
+        if self._rtd is not None:
+            pos = self._rtd.get_odometry()
+        else:
+            with self._lock:
+                pos = self.chassis.odometry.position.copy()
+        if show_info:
+            logger.info(
+                f"当前位姿: [{pos[0]:.4f}, {pos[1]:.4f}, {pos[2]:.4f}]"
+            )
+        return pos
 
     def get_distance(self, show_info=False) -> float:
         """
@@ -543,10 +564,14 @@ class MecanumDriver:
         返回:
             float: 行驶距离
         """
-        with self._lock:
-            if show_info:
-                logger.info(f"当前行驶距离: {self.chassis.odometry.distance:.4f}")
-            return self.chassis.odometry.distance
+        if self._rtd is not None:
+            dist = self._rtd.get_distance()
+        else:
+            with self._lock:
+                dist = self.chassis.odometry.distance
+        if show_info:
+            logger.info(f"当前行驶距离: {dist:.4f}")
+        return dist
 
     def stop(self):
         """
@@ -559,7 +584,8 @@ class MecanumDriver:
         关闭线程
         """
         self._stop_thread = True
-        self.odometry_thread.join()
+        if self.odometry_thread is not None:
+            self.odometry_thread.join()
 
     def move_to_position(
         self,
@@ -579,6 +605,25 @@ class MecanumDriver:
             tolerance: 位置误差阈值 [x误差, y误差, 角度误差]
             timeout: 超时时间（秒），超过此时间将停止尝试
         """
+        if self._rtd is not None:
+            # rtd 模式: 闭环在守护进程侧 100Hz 运行(同样的 PID/归一化/容差语义),
+            # 本方法退化为"下发目标 + 轮询状态直到完成", 保持阻塞语义不变。
+            current_position = self._rtd.get_odometry()
+            if duration is not None:
+                max_velocities = (
+                    np.abs(np.array(target_position) - current_position)
+                ) / duration
+            self._rtd.goto(target_position, max_velocities, tolerance, timeout)
+            t_end = time.time() + timeout + 1.0
+            while time.time() < t_end:
+                if getattr(self, "_stop_flag", False):
+                    self._rtd.stop()
+                    return
+                st = self._rtd.get_state()
+                if st is None or not st.get("goto_active", False):
+                    return
+                time.sleep(0.02)
+            return
 
         with self._lock:
             current_position = self.chassis.odometry.position.copy()

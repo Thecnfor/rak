@@ -24,25 +24,30 @@ class RealtimeMixin:
     _lane_timeout = cfg.LANE_TIMEOUT
 
     def start_realtime_streams(self):
-        """启动侧视(推理+推流)与前视(巡线推理+推流)共 4 个后台线程, 由 MyCar 初始化时调用。"""
+        """启动推理后台线程 + (可选)推流线程, 由 MyCar 初始化时调用。
+
+        推流线程(self.streamer 为 None, 即 stream=False/SMARTCAR_NO_STREAM=1)
+        不启动; 检测/巡线/correction 推理线程不受影响照常启动。
+        """
         self._init_realtime_caches()
         self._start_side_streams()
         self._start_front_streams()
 
     def _start_side_streams(self):
-        """启动侧视(cam2): 实时检测 + 实时推流两个线程。"""
+        """启动侧视(cam2): 实时检测线程; 有推流时再加实时推流线程。"""
         if RealtimeMixin._side_stream_flag:
             return
         RealtimeMixin._side_stream_flag = True
         threading.Thread(
             target=self._side_detect_loop, name="side_detect", daemon=True
         ).start()
-        threading.Thread(
-            target=self._side_stream_loop, name="side_stream", daemon=True
-        ).start()
+        if self.streamer is not None:
+            threading.Thread(
+                target=self._side_stream_loop, name="side_stream", daemon=True
+            ).start()
 
     def _start_front_streams(self):
-        """启动前视(cam1): 实时巡线推理 + correction 推理 + 实时推流三个线程。"""
+        """启动前视(cam1): 巡线/correction 推理线程; 有推流时再加实时推流线程。"""
         if RealtimeMixin._front_stream_flag:
             return
         RealtimeMixin._front_stream_flag = True
@@ -52,9 +57,10 @@ class RealtimeMixin:
         threading.Thread(
             target=self._front_correction_loop, name="front_correction", daemon=True
         ).start()
-        threading.Thread(
-            target=self._front_stream_loop, name="front_stream", daemon=True
-        ).start()
+        if self.streamer is not None:
+            threading.Thread(
+                target=self._front_stream_loop, name="front_stream", daemon=True
+            ).start()
 
     def _init_realtime_caches(self):
         """初始化实时缓存(侧视检测 + 前视巡线 + 前视 correction)。"""
@@ -139,11 +145,14 @@ class RealtimeMixin:
         return sock
 
     def _side_detect(self, sock, raw):
-        """在侧视图上跑一次检测, 返回 [cls,obj,label,score, nx,ny,nw,nh] 列表。"""
-        ok, buf = cv2.imencode(".jpg", raw)
-        if not ok:
-            return []
-        sock.send(b"image" + buf.tobytes())
+        """在侧视图上跑一次检测, 返回 [cls,obj,label,score, nx,ny,nw,nh] 列表。
+
+        raw 传输(b"rawi" + <II h,w> + BGR 字节), 免 JPEG 编解码两次全图运算。
+        """
+        import struct as _struct
+
+        h, w = raw.shape[:2]
+        sock.send(b"rawi" + _struct.pack("<II", h, w) + raw.tobytes())
         res = json.loads(sock.recv())
         return res if isinstance(res, list) else []
 

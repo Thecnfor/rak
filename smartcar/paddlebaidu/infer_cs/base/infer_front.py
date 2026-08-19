@@ -4,6 +4,7 @@ import zmq
 import cv2
 import numpy as np
 import json
+import struct
 import subprocess
 import psutil
 import yaml
@@ -215,10 +216,21 @@ class ClintInterface:
         return json.loads(response)
 
     def get_infer(self, img):
+        """发送一帧到推理后端并返回 JSON 解析后的结果。
+
+        传输格式(默认 raw): b"rawi" + <II 小端 h, w> + BGR 连续像素字节。
+        相比 JPEG(b"image" + jpg) 省掉客户端 imencode + 服务端 imdecode
+        两次全图编解码; loopback 带宽足够(128x128=48KB, 640x640=1.2MB)。
+        设环境变量 SMARTCAR_INFER_JPEG=1 可回退 JPEG 路径(兼容旧后端)。
+        """
         if self.img_size is not None:
             img = cv2.resize(img, self.img_size)
-        img = cv2.imencode('.jpg', img)[1].tobytes()
-        data = bytes('image', encoding='utf-8') + img
+        if os.environ.get("SMARTCAR_INFER_JPEG", "") != "1":
+            h, w = img.shape[:2]
+            data = b"rawi" + struct.pack("<II", h, w) + img.tobytes()
+        else:
+            img = cv2.imencode('.jpg', img)[1].tobytes()
+            data = bytes('image', encoding='utf-8') + img
         self.client.send(data)
         response = self.client.recv()
         response = json.loads(response)

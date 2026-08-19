@@ -34,11 +34,16 @@ class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
 
     STOP_PARAM: bool = True
 
-    def __init__(self):
+    def __init__(self, stream=True):
         """
         初始化智能车
 
         初始化智能车的各个组件，包括底盘、传感器、摄像头、PID控制器等。
+
+        参数:
+            stream (bool): 是否启动 MJPEG 推流(Flask 服务 + 每帧 JPEG 编码)。
+                比赛时不需要看画面可传 False(或设环境变量 SMARTCAR_NO_STREAM=1),
+                省掉推流线程和每帧编码/叠加的 CPU; 检测/巡线推理线程不受影响。
         """
         # 调用继承的初始化
         start_time = time.time()
@@ -47,7 +52,12 @@ class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
         # 显示
         self.display = ScreenShow()
 
-        self.streamer = Streamer()
+        # 推流可选: 不推流时 streamer 为 None, realtime 推流线程自动空转跳过
+        if stream and os.environ.get("SMARTCAR_NO_STREAM", "") != "1":
+            self.streamer = Streamer()
+        else:
+            self.streamer = None
+            logger.info("推流已禁用(stream=False 或 SMARTCAR_NO_STREAM=1)")
         self.arm = ArmController()
 
         # 获取自己文件所在的目录路径
@@ -317,7 +327,7 @@ class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
         # self.grap_cam.close()
 
 
-def create_car(reset=True, comp_mode=False):
+def create_car(reset=True, comp_mode=False, stream=True):
     """
     参数:
         reset (bool): True 时执行蜂鸣提示 + 机械臂复位 + 里程计清零。
@@ -325,8 +335,9 @@ def create_car(reset=True, comp_mode=False):
             (Orchestrator) 统一处理（4=一键启动/重来, 1=跳过, 3=急停），
             因此关闭 MyCar 内置的按键线程，避免双线程同时读按键造成串口冲突；
             任务编排与其他功能保持不变。
+        stream (bool): 是否启动 MJPEG 推流(透传给 MyCar, 默认 True)。
     """
-    car = MyCar()
+    car = MyCar(stream=stream)
     car.STOP_PARAM = False
     if comp_mode:
         # 比赛模式：禁用 MyCar 内置按键线程（按键统一由 Orchestrator 接管）

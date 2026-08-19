@@ -1,11 +1,16 @@
 # -*- coding: utf-8 -*-
 """基础移动原语(MoveMixin): 底层运动控制与坐标计算(从 motion.py 拆分而来)。"""
 import math
+import time
 
 from smartcar import logger
 
 # 方法默认参数用到的停止标志默认值(与 MyCar.STOP_PARAM 类属性保持一致)
 STOP_PARAM = True
+
+# 控制节拍周期(秒): move_base 每轮 set_velocity 后按此节拍 sleep(50Hz)。
+# 无节拍的忙等会以最快速度灌串口总线, 且占满一个核。
+CTRL_PERIOD = 0.02
 
 
 class MoveMixin:
@@ -25,6 +30,7 @@ class MoveMixin:
             if end_fuction():
                 break
             self.set_velocity(sp[0], sp[1], sp[2])
+            time.sleep(CTRL_PERIOD)  # 控制节拍(50Hz), 防忙等/串口过载
         if stop:
             self.set_velocity(0, 0, 0)
 

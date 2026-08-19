@@ -8,6 +8,11 @@ from .. import cfg  # 巡线参数统一入口(tasks/tools/cfg.py)
 # 方法默认参数用到的停止标志默认值(与 MyCar.STOP_PARAM 类属性保持一致)
 STOP_PARAM = True
 
+# 控制节拍周期(秒): 每轮 PID -> set_velocity 后按此节拍 sleep。
+# 无节拍的忙等会以最快速度灌串口总线(与里程计/机械臂/按键抢总线),
+# 且占满一个核; 50Hz 对巡线闭环足够(巡线推理频率本身 ~20-30Hz)。
+CTRL_PERIOD = 0.02
+
 
 class LaneMixin:
 
@@ -136,6 +141,7 @@ class LaneMixin:
             # 上限 v_max 兜底(speed 或 v_min 取大), 不随误差降速
             run_speed = v_min + (v_max - v_min) * 1.0
             self.set_velocity(run_speed, 0.0, angle_speed)
+            time.sleep(CTRL_PERIOD)  # 控制节拍(50Hz), 防忙等/串口过载
             if end_fuction():
                 break
         if stop:

@@ -18,6 +18,8 @@ from tasks.tools import create_car
 from tasks.orchestrator import Orchestrator
 from tasks.start.trigger_configs import TASK_ORDER
 
+import sys
+
 
 # 跳过这些任务(不跑巡线/钩子/钉姿势), 填 TASK_ORDER 里的任务名即可
 # SKIP_TASKS: set = set(["seeding", "target_detection", "watering", "shooting", "harvesting", "sorting", "ordering"])
@@ -28,8 +30,8 @@ SKIP_TASKS: set = set()
 TASK_END_POSE = {
     "seeding": (-0.1, 0, "LEFT", "UP"),
     "target_detection": (-0.3, 0, "RIGHT", "UP"),
-    "watering": (-0.3, 0, "LEFT", "UP"),
-    "shooting": (0, 0, "LEFT", "DOWN"),
+    "watering": (0, 0, "LEFT", "UP"),
+    "shooting": (-0.1, -0.1, "LEFT", "DOWN"),
     "harvesting": (-0.0, 0, "LEFT", "UP"),
     "sorting": (-0.3, 0, "RIGHT", "UP"),
     "ordering": (-0, 0, "LEFT", "UP"),
@@ -53,8 +55,10 @@ def _pin_arm_and_reset(car, task_name):
 
 
 def main():
+    # --no-stream: 不启动 MJPEG 推流(省推流线程+每帧编码 CPU), 检测/巡线不受影响
+    no_stream = "--no-stream" in sys.argv
     car = create_car(
-        reset=True, comp_mode=True
+        reset=True, comp_mode=True, stream=not no_stream
     )  # 初始化(含机械臂与里程计复位) + 比赛模式按键接管
     orch = Orchestrator(car)
     orch.skip = set(SKIP_TASKS)  # 静态跳过: 整个流程不跑这些任务
@@ -69,7 +73,7 @@ def main():
         #         ordering -> delivery(order_list); 上游被跳过时回落任务默认值
         orch.run_all(
             auto_run_task=True,
-            wait_start=False,
+            wait_start=True,
             allow_restart=True,
             task_kwargs={
                 "shooting": {
