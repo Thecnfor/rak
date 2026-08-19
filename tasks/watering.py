@@ -34,6 +34,12 @@ RETRY_BACK  = 0.08        # 档2: 后退距离 (m)
 RETRY_FWD   = 0.16        # 档3: 前进距离 (m, 回原处再前 0.08)
 RETRY_JUMP  = 0.52        # 跳塔: 从档3停车位置(原停车点前 0.08m)到第二塔的固定距离 (m, 仅跳塔用)
 
+# ----- 进入任务点后中线对位(correction 拉居中; steer 参数用 cfg.py CORR_THRESHOLD/CORR_WEIGHT) -----
+CENTER_FWD_SPEED = 0.1    # 巡线前进速度 (m/s)
+CENTER_FWD_TIME  = 1.5    # 巡线前进时长 (s) ≈ 0.15m
+CENTER_HOLD      = 0.2    # 前进到位后停车驻留 (s)
+CENTER_FWD_DIS   = 0.15   # 原路回退距离 (m) = 1.5s × 0.1m/s, 回到入口但已居中
+
 # ----- 水塔等级标签 → 需搬水块数 -----
 WATER_LABEL = {"water_l1": 1, "water_l2": 2, "water_l3": 3}
 TARGET_WATER = "water"     # 视觉伺服/对齐用的目标类(水塔/水块)
@@ -49,6 +55,7 @@ PICK_POSE_Y  = -0.180                        # 抓块姿态 y (servo_y)
 PICK_HAND    = -20                            # 抓块姿态手爪 (-10 )
 FIRST_CUBE_X, SECOND_CUBE_X = -0.145, -0.210 # 每块组内 第1/第2 块 X
 GRASP_Y, LIFT_Y = -0.065, -0.150             # 吸块下降 y / 吸完抬回 y
+GRASP_HOLD = 0.4                              # 吸气位置停驻时长(秒), 吸稳再抬
 DELIVER_Y    = [-0.025, -0.065, -0.095]      # 放块第1/2/3层 y (梯度)
 DELIVER_HAND = [-85, -90, -90]               # 放块第1/2/3层手爪 (4_car -80/-85/-85 )
 CARRY_X      = [[-0.075, -0.070, -0.070],
@@ -251,6 +258,7 @@ def _servo_pick(car):
     _ensure_hand(car, -15.0)                 # 下降前: 末端转朝下 0
     car.arm.grasp(True)                      # 下降前先吸气(下降途中吸嘴已在吸)
     car.arm.move_y_position(GRASP_Y)      # 降到水块高度
+    time.sleep(GRASP_HOLD)                # 到底停 0.4s, 吸稳再抬
     car.arm.move_y_position(LIFT_Y)       # 抬回运输高度
 
 
@@ -309,6 +317,15 @@ def run(car):
     """run.py 编排入口(复用编排器已建的车): 编排层已预摆臂到识别姿势, 这里只校验."""
     try:
         _check_detect_pose(car)              # 校验已在识别姿势; 不在则安全兜底摆回
+
+        # 进入任务点后中线对位: correction 模型(cfg.py CORR_THRESHOLD=0.02/CORR_WEIGHT=0.3)
+        # 巡线前进 1.5s(0.1m/s≈0.15m)把车拉到道路中间 → 停车 0.2s → 原路回退 0.15m,
+        # 回到入口位置但已居中, 再开始识别水塔
+        print(f"\n===== 中线对位: 巡线前进 {CENTER_FWD_TIME}s ({CENTER_FWD_SPEED}m/s) =====")
+        car.lane_time(speed=CENTER_FWD_SPEED, time_dur=CENTER_FWD_TIME)
+        time.sleep(CENTER_HOLD)              # 停车 0.2s
+        print(f"===== 原路回退 {CENTER_FWD_DIS}m =====")
+        car.move_for([-CENTER_FWD_DIS, 0, 0], max_velocities=CHASSIS_V)
 
         print("===== 第 1 个水塔 =====")
         ok1, _ = run_one_tower(car, tower_idx=0, is_last_tower=False)

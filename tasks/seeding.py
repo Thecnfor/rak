@@ -38,6 +38,7 @@ PICK_POSE = dict(x=-0.03, y=-0.15, arm=-91, hand=-20)
 PLACE_POSE = dict(x=-0.21, y=-0.15, arm=93, hand=-20)  # 机械臂预对位基准/放苗兜底
 CHASSIS_ALIGN_X = -0.26  # 仅底盘对齐阶段: 滑轨放更外侧, 便于把槽标拉进画面中心
 GRASP_Y, LIFT_Y = -0.00, -0.15  # 降至最底(0)吸 / 抬回(-0.15)
+GRASP_HOLD = 0.4  # 吸气位置停驻时长(秒), 吸稳再抬
 PLACE_Y, PLACE_LIFT_Y = -0.03, -0.15  # 放苗微降 / 释放后一步抬到 -0.15
 
 MOVE_V = 0.1  # 底盘平移限速, 降漂移
@@ -253,8 +254,9 @@ def _pick(car, label):
     if not ok:
         print(f"[抓取] {label} 对齐未收敛, 继续按当前位下放抓取")
     _ensure_hand(car)  # ② 抓取前再兜底: 滑轨/Y 大电流移动可能又把舵机打回 -90
-    car.arm.move_y_position(GRASP_Y)
-    car.arm.grasp(True)
+    car.arm.grasp(True)                  # 下降前先吸气(下降途中吸嘴已在吸)
+    car.arm.move_y_position(GRASP_Y)     # 降到最底(0)吸
+    time.sleep(GRASP_HOLD)               # 到底停 0.4s, 吸稳再抬
     car.arm.move_y_position(LIFT_Y)
     return True
 
