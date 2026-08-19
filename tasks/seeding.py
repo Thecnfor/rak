@@ -67,6 +67,24 @@ PICK_FINAL_RULE = None
 # ── 置信度过滤: 只认 90% 以上的目标, 滤掉低分误检(选列/对齐统一用) ──
 SCORE_THRESHOLD = 0.50
 
+# ── 选列扫描参数(抗频闪, 仅用于选列决策; 抓取对齐仍用 SCORE_THRESHOLD) ────
+# cylinder 频闪有两种: ① 低分瞬时跌破阈值(用放宽阈值解决)
+#                   ② 纯频闪 — 检测出现又消失, 分数可能很高(用跨调用记忆解决)
+SCAN_WINDOW = 0.40      # 窗口时长(秒)
+SCAN_POLL = 0.05        # 轮询间隔(秒)
+SCAN_MIN_COUNT = 2      # 窗口内至少出现 N 次才算在场
+SCAN_PERSIST_CY3 = 0.8  # cylinder_3 跨调用记忆窗口(秒): 频闪间隔 > 单窗口也能保留
+
+# 逐 label 扫描阈值(cylinder_3 抗频闪加强, 其他保持一致)
+LABEL_SCAN_THRESHOLD = {
+    "cylinder_1": 0.30,
+    "cylinder_2": 0.30,
+    "cylinder_3": 0.20,  # cylinder_3 更激进: 频闪低分也算在场
+}
+
+# 模块级: cylinder_3 跨调用最近见到时间(纯频闪场景, 跨 _scan_label 调用保留)
+_scan_seen_cy3 = 0.0
+
 # ── 任务白名单: 播种只认这四类标签, 其余一律过滤, 不干扰决策 ──────────
 TASK_LABELS = ("cylinder_set", "cylinder_1", "cylinder_2", "cylinder_3")
 
@@ -77,9 +95,48 @@ def _dets(car, max_age=0.3):
             if d[2] in TASK_LABELS and d[3] >= SCORE_THRESHOLD]
 
 
-def _has(car, label, max_age=0.3):
-    """只查不移动: 侧视实时缓存里是否存在该 label 目标(白名单+置信度已过滤, 供选列/兜底扫描用)."""
-    return any(d[2] == label for d in _dets(car, max_age))
+def _scan_label(car):
+    """窗口扫描 + cylinder_3 跨调用持久记忆, 抗 cylinder_3 纯频闪.
+
+    纯频闪场景: 目标瞬时出现/消失(分数可能很高), 单窗口扫描也会漏。
+    解法(双保险):
+      1) cylinder_3 单独使用更激进阈值 LABEL_SCAN_THRESHOLD["cylinder_3"]=0.20,
+         比其他 label 的 0.30 更低, 接受更低分的命中。
+      2) 模块级 _scan_seen_cy3 记忆最近见到时间, 在 SCAN_PERSIST_CY3 秒内
+         出现过即算在场 — 频闪间隔大于单窗口 SCAN_WINDOW 也能保留。
+    其他 label 仍按窗口内累计 >= SCAN_MIN_COUNT 判定。
+
+    在场 labels 中取"出现次数最多"者(并列按 CYLINDERS 顺序); 全无则 None。
+    抓取对齐仍走 _dets(SCORE_THRESHOLD=0.50), 此处不抬高低分误检门槛。
+    """
+    global _scan_seen_cy3
+
+    counts = {l: 0 for l in CYLINDERS}
+    end = time.time() + SCAN_WINDOW
+    while time.time() < end:
+        for d in car.get_realtime_detections(max_age=SCAN_POLL * 2):
+            label = d[2]
+            thr = LABEL_SCAN_THRESHOLD.get(label, 0.30)
+            if label in counts and d[3] >= thr:
+                counts[label] += 1
+                if label == "cylinder_3":
+                    _scan_seen_cy3 = time.time()
+        time.sleep(SCAN_POLL)
+
+    now = time.time()
+    cy3_persisted = (now - _scan_seen_cy3) < SCAN_PERSIST_CY3
+
+    present = []
+    for l in CYLINDERS:
+        if counts[l] >= SCAN_MIN_COUNT:
+            present.append(l)
+        elif l == "cylinder_3" and cy3_persisted:
+            # cylinder_3 专属: 即使窗口内累计不够, 跨调用记忆里仍有也算在场
+            present.append(l)
+
+    if not present:
+        return None
+    return max(present, key=lambda l: (counts[l], -CYLINDERS.index(l)))
 
 
 def _ensure_hand(car, target=-20.0, retries=3, settle=0.5):
@@ -239,6 +296,8 @@ def _chassis_fine_tune(car, label, expected_cx, pos, max_steps=FINE_TUNE_MAX):
 
 
 def run(car):
+    global _scan_seen_cy3
+    _scan_seen_cy3 = 0.0  # 清空上一轮残留记忆, 防跨任务误选
     pos = [0.0]  # 底盘纵向自记账
     seen = None
     completed = []
@@ -254,7 +313,7 @@ def run(car):
         )
         print(f"已经移动到了PICK_POSE")
         # 扫描本列 cylinder; 没有就用剩余 label 兜底
-        label = next((l for l in CYLINDERS if _has(car, l)), None)
+        label = _scan_label(car)
         if label is None:
             label = next((l for l in CYLINDERS if l not in completed), None)
             if label is None:
