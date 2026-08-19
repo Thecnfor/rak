@@ -37,8 +37,8 @@ MARKER_NOZZLE = (-0.000, -0.230)
 PICK_POSE = dict(x=-0.03, y=-0.15, arm=-91, hand=-20)
 PLACE_POSE = dict(x=-0.21, y=-0.15, arm=93, hand=-20)  # 机械臂预对位基准/放苗兜底
 CHASSIS_ALIGN_X = -0.26  # 仅底盘对齐阶段: 滑轨放更外侧, 便于把槽标拉进画面中心
-GRASP_Y, LIFT_Y = -0.01, -0.15  # 降至最底(0)吸 / 抬回(-0.15)
-PLACE_Y, PLACE_LIFT_Y = -0.02, -0.15  # 放苗微降 / 释放后一步抬到 -0.15
+GRASP_Y, LIFT_Y = -0.00, -0.15  # 降至最底(0)吸 / 抬回(-0.15)
+PLACE_Y, PLACE_LIFT_Y = -0.03, -0.15  # 放苗微降 / 释放后一步抬到 -0.15
 
 MOVE_V = 0.1  # 底盘平移限速, 降漂移
 
@@ -85,6 +85,13 @@ LABEL_SCAN_THRESHOLD = {
 # 模块级: cylinder_3 跨调用最近见到时间(纯频闪场景, 跨 _scan_label 调用保留)
 _scan_seen_cy3 = 0.0
 
+# ── 本列画面范围(抗"看到下一列"): 侧视相机能看到左右相邻列 ──────────
+# 检测坐标 nx∈[-1,1], 0=画面中心, 负=左, 正=右(见 trt_infer.tolist_nomoralize)。
+# 车停靠列位后本列 cylinder 在画面中心附近(各尺寸 NOZZLE cx ∈ ±0.08), 相邻列在左右。
+# 选列扫描与抓取对齐都只认 |nx|<=此值 的本列目标, 从根上杜绝抓到相邻列。
+# 现场用 view_cam 看相邻列目标 nx 大致在哪再标定此值(相邻列 nx 通常远超 0.35)。
+COLUMN_CX_MARGIN = 0.35
+
 # ── 任务白名单: 播种只认这四类标签, 其余一律过滤, 不干扰决策 ──────────
 TASK_LABELS = ("cylinder_set", "cylinder_1", "cylinder_2", "cylinder_3")
 
@@ -93,6 +100,12 @@ def _dets(car, max_age=0.3):
     """侧视实时缓存, 只保留白名单四类且置信度达标的检测框(其余标签一律过滤)."""
     return [d for d in car.get_realtime_detections(max_age=max_age)
             if d[2] in TASK_LABELS and d[3] >= SCORE_THRESHOLD]
+
+
+def _in_column(d, margin=COLUMN_CX_MARGIN):
+    """是否本列目标: 画面横坐标 |nx| <= margin(侧视归一化, 0=画面中心).
+    相邻列目标 nx 通常在 ±0.4 之外, 由此排除, 避免选列/抓取看到下一列。"""
+    return abs(d[4]) <= margin
 
 
 def _scan_label(car):
@@ -116,6 +129,8 @@ def _scan_label(car):
     while time.time() < end:
         for d in car.get_realtime_detections(max_age=SCAN_POLL * 2):
             label = d[2]
+            if not _in_column(d):          # 只认本列, 排除左右相邻列
+                continue
             thr = LABEL_SCAN_THRESHOLD.get(label, 0.30)
             if label in counts and d[3] >= thr:
                 counts[label] += 1
@@ -166,7 +181,7 @@ def _pick(car, label):
     _ensure_hand(car)  # ① 视觉对齐前: 强制末端到位
     max_px = lock_px = None
     if label == "cylinder_2":
-        cy2 = [d for d in _dets(car) if d[2] == "cylinder_2"]
+        cy2 = [d for d in _dets(car) if d[2] == "cylinder_2" and _in_column(d)]
         valid = [d for d in cy2 if d[4] <= 0.4]     # px>0.4 = 底座, 剔除
         if not valid:
             print("[抓取] cylinder_2 全部 px>0.4(空底座), 不抓取")
@@ -177,10 +192,11 @@ def _pick(car, label):
             max_px, lock_px = 0.4, valid[0][4]      # 只锁最左边的真目标
         else:
             max_px = 0.4                            # 底座剔除仍生效, 最终决策交给 final_rule
-    # 右臂对齐 cylinder_1/2/3(抓取): 锁定画面靠右的目标
+    # 右臂对齐 cylinder_1/2/3(抓取): 锁定画面靠右的目标; px_range 只认本列, 排除相邻列
     ok = car.arm_servo_align(
         label, *NOZZLE[label], prefer_right=True,
         max_px=max_px, lock_px=lock_px, final_rule=PICK_FINAL_RULE,
+        px_range=(-COLUMN_CX_MARGIN, COLUMN_CX_MARGIN),
         min_score=SCORE_THRESHOLD, **PICK_SERVO
     )
     if not ok:
@@ -190,6 +206,25 @@ def _pick(car, label):
     car.arm.grasp(True)
     car.arm.move_y_position(LIFT_Y)
     return True
+
+
+def _pick_or_fallback(car, label, completed):
+    """_pick 失败时(仅 cylinder_2 全空底座会失败)兜底改抓 cylinder_1/3.
+
+    场景: 扫描本列时 cylinder_2 命中, 但抓取前发现所有 cylinder_2 都是空底座
+    (px>0.4), 而本列其实有 cylinder_1/3 可抓 → 不应直接跳过本列。
+    返回成功抓取的 label(或 None = 全部失败, 调用方跳过本列)。
+    """
+    if _pick(car, label):
+        return label
+    if label != "cylinder_2":
+        return None
+    # cylinder_2 全空底座 → 兜底改抓其他 label
+    alt = next((l for l in ("cylinder_1", "cylinder_3") if l not in completed), None)
+    if alt is not None and _pick(car, alt):
+        print(f"[播种] cylinder_2 全空底座, 兜底改抓 {alt}")
+        return alt
+    return None
 
 
 def _place(car):
@@ -323,9 +358,11 @@ def run(car):
             seen = label
         elif label == seen and seen in ("cylinder_1", "cylinder_3"):
             label = "cylinder_3" if seen == "cylinder_1" else "cylinder_1"
-        if not _pick(car, label):
-            print(f"[播种] 列{col} 判定 {label} 为空底座/未抓取, 跳过本列(不放苗)")
+        picked = _pick_or_fallback(car, label, completed)
+        if picked is None:
+            print(f"[播种] 列{col} 全部候选未抓取, 跳过本列(不放苗)")
             continue
+        label = picked
         completed.append(label)
         # 放苗: 底盘到槽列 + 直接用第1列记住的放苗姿势(不再现场伺服)
         _chassis(car, SLOT[TARGET_SLOT[label]], pos)

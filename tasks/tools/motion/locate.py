@@ -379,6 +379,7 @@ class LocateMixin:
         x_check=False,
         auto_sign=False,
         max_px=None,
+        px_range=None,
         lock_px=None,
         final_rule=None,
         debug=False,
@@ -415,6 +416,9 @@ class LocateMixin:
                         时自动翻转滑轨符号并告警(换车/换相机后免人工重标该轴)。默认 False。
             max_px: 候选框画面横坐标 d[4] > max_px 的直接剔除(视为底座/干扰, 永不锁定),
                     默认 None 不过滤。与 prefer/cx 无关, 在一切挑选规则之前生效。
+            px_range: (cx_min, cx_max) 画面横坐标区间, 候选框需落在该区间内才算目标
+                    (排除左右相邻列的目标, 只认本列); None=不过滤。默认 None。
+                    先于 max_px 生效; 过滤后无候选视为缺帧不推进对齐。
             lock_px: 非 None 时强制只锁定画面横坐标最接近 lock_px 的同 label 目标,
                     无视 prefer/滞回(任务层已选好目标, 如"两个 cylinder_2 只抓最左")。默认 None。
             final_rule: 多候选跟踪+最终决策模式: 'right'=靠右 / 'left'=靠左 / 'near'=靠近期望点。
@@ -493,6 +497,14 @@ class LocateMixin:
             # max_px 硬过滤: 画面横坐标超限的框视为底座/干扰, 先于一切规则剔除(永不锁定)。
             if max_px is not None:
                 dets = [d for d in dets if d[4] <= max_px]
+            # px_range 本列硬过滤: 横坐标落在区间外的框(左右相邻列目标)直接剔除,
+            # 只认本列目标。过滤后无候选视为缺帧, 不推进对齐(也不动用相邻列目标)。
+            if px_range is not None:
+                dets = [d for d in dets if px_range[0] <= d[4] <= px_range[1]]
+            if not dets:
+                self.arm.x_speed(0)
+                time.sleep(0.02)
+                continue
             if final_rule is not None:
                 # ── 多候选跟踪 + 最终决策 ──
                 # 画面所有同 label 候选都先"锁定"(进 tracks, 频闪/低置信度不丢),
