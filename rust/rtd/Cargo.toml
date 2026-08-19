@@ -1,0 +1,28 @@
+# rtd —— 实时控制守护进程 (Rust 版)
+# 复刻 smartcar/whalesbot 的 Python 语义 + cpp/rtd 的 C++ 参考实现, 与两者完全同协议。
+# 依赖保持最小: zmq(绑系统 libzmq4)+serde_json+libc+tokio(仅 PUB 节拍与信号)。
+[package]
+name = "rtd"
+version = "0.1.0"
+edition = "2021"
+description = "SmartCar MC602 实时控制守护进程 (100Hz 里程计/PID 闭环 + ZMQ 控制 API)"
+license = "MIT"
+
+[dependencies]
+# libzmq 绑定: zmq-sys 默认走 pkg-config 链接系统 libzmq(已装 libzmq3-dev + pkg-config)
+zmq = "0.9"
+# JSON 用 serde_json::json! 宏手建(不需要 derive), 减少依赖与编译内存
+serde_json = "1"
+# 系统调用/termios 绑定(unsafe 全部集中在 src/io.rs)
+libc = "0.2"
+# tokio 仅用于: PUB 50Hz 节拍、SIGINT/SIGTERM 信号、停机协调。
+# 100Hz 实时控制环与 ZMQ REP 必须在专用 std 线程(阻塞/绝对节拍), 不放进 async。
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "signal"] }
+
+# 编译内存优化(内存 ~3.5G 且大部分被占): 单 codegen 单元 + 关闭增量, 降低峰值内存。
+# 链接期内存不足时再配合 .cargo/config.toml 的 build.jobs=1 + 手动 cargo build -j 1。
+[profile.release]
+opt-level = 3
+codegen-units = 1
+lto = false
+debug = false

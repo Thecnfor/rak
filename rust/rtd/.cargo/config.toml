@@ -1,0 +1,10 @@
+# rtd 构建配置(本机 Jetson 内存 ~3.5G 且大部分被占)
+#
+# 降并行度: 默认最大 1 个编译任务, 避免多 crate 并行编译峰值内存超限。
+# 若链接器仍内存不足, 再手动执行: cargo build --release -j 1
+[build]
+jobs = 1
+
+# release 覆盖 Cargo.toml 的 [profile.release]: 单 codegen 单元, 降低 codegen 峰值内存
+[profile.release]
+codegen-units = 1

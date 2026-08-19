@@ -160,6 +160,10 @@ nohup.out
 # 本地工具/IDE 目录
 .codegraph/
 .trae/
+.claude/
+
+# 运行日志(调试产物, 不入库)
+smartcar/whalesbot/tools/logs/
 
 #test
 scripts/
