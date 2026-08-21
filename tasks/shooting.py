@@ -30,6 +30,15 @@ def _knocked_down(car, x_c, range_=KNOCK_RANGE):
     ]
     return not dets
 
+def _chassis(car, target, pos):
+    """闭环行驶到绝对位置 target(m), 自记账, 不依赖 odom 绝对值."""
+    dx = target - pos[0]
+    if abs(dx) < 0.05:
+        return
+    # 车道保持行驶(与 lane_dis_offset 一致), 每次只发相对量 dx
+    car.lane_dis_offset(speed=0.10, dis_hold=dx)
+    pos[0] = target
+
 def run(car, animal_list=None):  # noqa: E741
 
     if animal_list is None:
@@ -41,24 +50,13 @@ def run(car, animal_list=None):  # noqa: E741
     ]
     print("animal_list =", animal_list)
     step = 0.15  # 每个目标间距
-    relative_loc = []  # 记录相对运动距离
+    hit_idx = []  # 打击点所在 index, 绝对站位 = idx*step
     hit_x = []  # 对应击打点动物的 x_c (target_detection 记录, 用于 sort_pos 选中该只)
-    last_index = -1  # 记录上一个打击点的索引，初始为-1
-
     for idx, item in enumerate(animal_list):
         value, x_c = item  # animal_list[i] = (害/益, x_c)
-        KNOCK_RANGE
         if value == 0:  # 遇到需要打击的点
-            if last_index == -1:
-                # 第一个打击
-                dist = idx*step
-            else:
-                # 后续打击点：相对距离 = 两个点之间的间隔数 * step
-                dist = (idx - last_index) * step
-
-            relative_loc.append(dist)
+            hit_idx.append(idx)
             hit_x.append(x_c)  # 记录该击打点动物的 x_c
-            last_index = idx  # 更新上一个打击点位置
 
     # 射击任务
     car.arm.set_arm_pose(arm="LEFT", hand="UP")
@@ -68,10 +66,10 @@ def run(car, animal_list=None):  # noqa: E741
                 delta_x=x_c, delta_y=None,label="animal",sort_pos=(0, 0),
                 min_score=ANIMAL_CONF)  # 对齐 animal_list[0] (用它的 x_c 选中)
         knock_count = 0  # 已击倒数
-        for dis, x_c in zip(relative_loc, hit_x):
-            if dis > 0:
-                car.lane_dis_offset(speed=0.10, dis_hold=dis)
-                time.sleep(0.2)
+        pos = [0.0]  # 底盘纵向自记账, 起点=对齐 animal_list[0] 处
+        for idx, x_c in zip(hit_idx, hit_x):
+            _chassis(car, idx * step, pos)
+            time.sleep(0.2)
             for _ in range(MAX_SHOTS):  # 每点最多击发 MAX_SHOTS 次, 击倒即停
                 car.move_to_detection_target(  # 每次击发前重新对齐(未击倒才走到这)
                     delta_x=x_c, delta_y=None, label="animal", sort_pos=(0.17, 0), lock=True,
