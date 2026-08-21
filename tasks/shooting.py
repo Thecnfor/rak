@@ -8,15 +8,15 @@ LANE_PID = dict(
     deadzone=0.05,              # da 死区: 直线噪声 ~0.1, 全局 0.0 未启用 -> 削掉
 )
 
-X_C_LIST = [0.34, 0.29, 0.29, 0.29]
+X_C_LIST = [0.36, 0.27, 0.31, 0.29]
 
 # 对齐窗口(宽): move_to_detection_target 只对齐 x_c 距目标站位在该范围内的 animal,
 # 需罩住入场位置, 偏窄会导致找不到候选而对齐空等超时。现场按摄像头视野标定。
 ALIGN_RANGE = 0.8
 # 击倒判定窗口(窄): 站位 x_c 附近找不到 animal 才算击倒, 避免误判远处残骸。
-KNOCK_RANGE = 0.2
+KNOCK_RANGE = 0.17
 
-ANIMAL_CONF = 0.70
+ANIMAL_CONF = 0.7
 
 MAX_SHOTS = 5  # 每个击倒点最多击发次数, 击倒即停
 
@@ -40,7 +40,7 @@ def run(car, animal_list=None):  # noqa: E741
         for i, (v, _) in enumerate((x, 0.0) if isinstance(x, int) else x for x in animal_list)
     ]
     print("animal_list =", animal_list)
-    step = 0.12  # 每个目标间距
+    step = 0.15  # 每个目标间距
     relative_loc = []  # 记录相对运动距离
     hit_x = []  # 对应击打点动物的 x_c (target_detection 记录, 用于 sort_pos 选中该只)
     last_index = -1  # 记录上一个打击点的索引，初始为-1
@@ -74,7 +74,7 @@ def run(car, animal_list=None):  # noqa: E741
                 time.sleep(0.2)
             for _ in range(MAX_SHOTS):  # 每点最多击发 MAX_SHOTS 次, 击倒即停
                 car.move_to_detection_target(  # 每次击发前重新对齐(未击倒才走到这)
-                    delta_x=x_c, delta_y=None, label="animal", sort_pos=(x_c, 0), lock=True,
+                    delta_x=x_c, delta_y=None, label="animal", sort_pos=(0.17, 0), lock=True,
                     min_score=ANIMAL_CONF, select_range=ALIGN_RANGE)  # 对齐击打点 (用 x_c 选中该只)
                 time.sleep(0.2)
                 car.beep()
@@ -86,11 +86,5 @@ def run(car, animal_list=None):  # noqa: E741
                     break
             time.sleep(0.3)
             if knock_count >= 2:  # 击倒 2 个即整个射击停止
-                # 收尾: 对齐第 4 只 animal 后前进固定距离再结束任务
-                x4 = X_C_LIST[3] if len(X_C_LIST) > 3 else X_C_LIST[-1]
-                car.move_to_detection_target(
-                    delta_x=0.0, delta_y=None, label="animal", sort_pos=(x4, 0),
-                    lock=True, min_score=ANIMAL_CONF, select_range=ALIGN_RANGE)
-                car.lane_dis_offset(speed=0.20, dis_hold=FINAL_ADVANCE_M)
                 time.sleep(0.3)
                 break
