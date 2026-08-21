@@ -3,6 +3,8 @@
 #include <QJsonObject>
 #include <QObject>
 #include <QString>
+#include <QStringList>
+#include <QVariantMap>
 
 class QNetworkAccessManager;
 class QTimer;
@@ -29,10 +31,17 @@ public:
     Q_INVOKABLE void skip();
     Q_INVOKABLE void reset();
     Q_INVOKABLE void setTaskSpeed(const QString &name, double speed);
+    // 设置触摸屏选中的任务子集（选中哪几个就只跑哪几个）
+    Q_INVOKABLE void setSelectedTasks(const QStringList &tasks);
+    // 设置某任务的参数覆盖（lane PID / 触发参数）
+    Q_INVOKABLE void setTaskConfig(const QString &name, const QVariantMap &config);
+    // 拉取某任务的参数配置（lane PID / 触发参数）
+    Q_INVOKABLE void fetchTaskConfig(const QString &name);
 
 signals:
     void onlineChanged(bool online);
     void eventReceived(const QJsonObject &event);
+    void taskConfigReceived(const QString &name, const QVariantMap &config);
     void requestFailed(const QString &message);
 
 private:

@@ -66,7 +66,7 @@ TASK_TRIGGER: Dict[str, Dict] = {
         "time_out": 0.0,  # 兜底: 超时(秒)强制停, 0=不启用
         "start_dist": 0.0,  # 先行驶多少米后才开始检查触发条件 (0=一开始就检查)
         "lane": {  # 本路段巡线特调(每任务独立, 跑完自动还原)
-            "kp": 1.9,  # 转向 PID Kp: 弯道转不过来加大 / 直道蛇形减小
+            "kp": 2.0,  # 转向 PID Kp: 弯道转不过来加大 / 直道蛇形减小
             "kd": 0.0,  # 转向 PID Kd(阻尼): 摆动大加大 / 转向迟钝减小
             "deadzone": 0.0,  # da 进 PID 前死区: 直线仍抖加大
             "v_forward": 0.8,  # 恒速前进速度(m/s), 不填则回落公共默认 speed 0.3
@@ -74,16 +74,47 @@ TASK_TRIGGER: Dict[str, Dict] = {
     },
     "ordering": {
         "type": "odometer",
-        "distance": 1.5,  # 行驶 1.5m 触发 (sorting 结束已清零里程计, 从 0 起算)
-        "max_run": 2.0,
+        "segments": [
+            {
+                "distance": 0.9,
+                "lane": {
+                    "kp": 1.5,
+                    "kd": 0.0,
+                    "deadzone": 0.0,
+                    "v_forward": 0.4,
+                },
+            },
+            {
+                "distance": 2.0,
+                "lane": {
+                    "kp": 3.6,
+                    "kd": 0.0,
+                    "deadzone": 0.0,
+                    "v_forward": 1.0,
+                },
+            },
+            {
+                "distance": 0.8,
+                "lane": {
+                    "kp": 2.6,
+                    "kd": 0.0,
+                    "deadzone": 0.0,
+                    "v_forward": 0.3,
+                },
+            },
+            {
+                "distance": 1.53,
+                "lane": {
+                    "kp": 1.8,
+                    "kd": 0.0,
+                    "deadzone": 0.0,
+                    "v_forward": 0.9,
+                },
+            },
+        ],
+        "max_run": 200.0,
         "time_out": 0.0,
         "start_dist": 0.0,
-        "lane": {
-            "kp": 1.5,
-            "kd": 0.0,
-            "deadzone": 0.0,
-            "v_forward": 0.7,
-        },
     },
     # ================= 视觉触发 =================
     # 公共参数字段见 odometer 块; 视觉额外字段:
@@ -103,7 +134,7 @@ TASK_TRIGGER: Dict[str, Dict] = {
         "time_out": 200.0,  # 20s 没触发强制停
         "start_dist": 1.0,
         "lane": {  # 本路段巡线特调(每任务独立, 跑完自动还原)
-            "kp": 1.6,  # 转向 PID Kp: 弯道转不过来加大 / 直道蛇形减小
+            "kp": 2.5,  # 转向 PID Kp: 弯道转不过来加大 / 直道蛇形减小
             "kd": 0.0,  # 转向 PID Kd(阻尼): 摆动大加大 / 转向迟钝减小
             "deadzone": 0.0,  # da 进 PID 前死区: 直线仍抖加大
             "v_forward": 0.6,  # 恒速前进速度(m/s), 不填则回落公共默认 speed 0.3
@@ -125,7 +156,7 @@ TASK_TRIGGER: Dict[str, Dict] = {
         "time_out": 300.0,
         "start_dist": 0.0,
         "lane": {  # 本路段巡线特调(每任务独立, 跑完自动还原)
-            "kp": 1.4,
+            "kp": 1.1,
             "kd": 0.0,
             "deadzone": 0.0,
             "v_forward": 0.5,
@@ -140,9 +171,9 @@ TASK_TRIGGER: Dict[str, Dict] = {
         "max_age": 0.1,
         "max_run": 3.0,
         "time_out": 300.0,
-        "start_dist": 2.0,
+        "start_dist": 2.2,
         "lane": {  # 本路段巡线特调(每任务独立, 跑完自动还原)
-            "kp": 2.29,
+            "kp": 2.5,
             "kd": 0.0,
             "deadzone": 0.0,
             "v_forward": 0.6,
@@ -159,7 +190,7 @@ TASK_TRIGGER: Dict[str, Dict] = {
         "time_out": 300.0,
         "start_dist": 0.0,
         "lane": {  # 本路段巡线特调(每任务独立, 跑完自动还原)
-            "kp": 2.7,
+            "kp": 2.1,
             "kd": 0.0,
             "deadzone": 0.0,
             "v_forward": 0.6,
@@ -179,7 +210,7 @@ TASK_TRIGGER: Dict[str, Dict] = {
         "time_out": 250.0,
         "start_dist": 0.0,
         "lane": {  # 本路段巡线特调(每任务独立, 跑完自动还原)
-            "kp": 1,
+            "kp": 5.0,
             "kd": 0.0,
             "deadzone": 0.0,
             "v_forward": 0.8,
@@ -188,19 +219,33 @@ TASK_TRIGGER: Dict[str, Dict] = {
     "delivery": {
         "type": "vision",
         "labels": ["name"],  # 识别到名字牌即触发
-        "min_score": 0.5,
+        "min_score": 12,
         "confirm": 3,
         "fresh": False,
         "max_age": 0.3,
-        "max_run": 1.8,
+        "segments": [
+            {
+                "distance": 1.0,
+                "lane": {
+                    "kp": 2.5,
+                    "kd": 0.0,
+                    "deadzone": 0.0,
+                    "v_forward": 0.4,
+                },
+            },
+            {
+                "distance": 40.9,
+                "lane": {
+                    "kp": 1.8,
+                    "kd": 0.0,
+                    "deadzone": 0.0,
+                    "v_forward": 1.5,
+                },
+            },
+        ],
+        "max_run": 44.8,
         "time_out": 300.0,
         "start_dist": 0.0,
-        "lane": {  # 本路段巡线特调(每任务独立, 跑完自动还原)
-            "kp": 1.8,
-            "kd": 0.0,
-            "deadzone": 0.0,
-            "v_forward": 0.6,
-        },
     },
 }
 
@@ -242,12 +287,26 @@ def resolve_config(base_cfg: Dict, override: Optional[Dict] = None) -> Dict:
     for k, v in _COMMON_DEFAULTS.items():
         cfg.setdefault(k, v)
 
+    # segments 多段支持 (odometer / vision 通用): 补全每段的 lane/distance 字段
+    segs = cfg.get("segments")
+    if isinstance(segs, list) and len(segs) > 0:
+        seg_total = 0.0
+        for seg in segs:
+            seg.setdefault("lane", {})
+            seg.setdefault("distance", 0.0)
+            seg_total += float(seg["distance"])
+    else:
+        seg_total = 0.0
+
     if cfg.get("type") == "vision":
         for k, v in _VISION_DEFAULTS.items():
             cfg.setdefault(k, v)
     elif cfg.get("type") == "odometer":
         for k, v in _ODOMETER_DEFAULTS.items():
             cfg.setdefault(k, v)
+        # odometer 专用: distance 回落到 segments 各段 distance 之和
+        if seg_total > 0:
+            cfg["distance"] = float(cfg.get("distance", seg_total)) or seg_total
     else:
         raise ValueError(
             f"未知触发类型 {cfg.get('type')!r}, 可选 'vision' / 'odometer'"

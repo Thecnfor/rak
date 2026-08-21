@@ -24,20 +24,23 @@ import sys
 
 # 跳过这些任务(不跑巡线/钩子/钉姿势), 填 TASK_ORDER 里的任务名即可
 # SKIP_TASKS: set = set(["seeding", "target_detection", "watering", "shooting", "harvesting", "sorting", "ordering"])
-SKIP_TASKS: set = set()
+SKIP_TASKS: set = set(["harvesting", "sorting"])
 
-# 任务结束后向左转 60° (逆时针) 的任务 — 起步巡线前先调整朝向
-# move_for 第三分量 = 角度偏移, 正向逆时针; 60° = π/3
-_TURN_LEFT_TASKS = {"target_detection", "watering"}
-_TURN_LEFT_RAD = math.pi / 6
+# 任务结束后向左转 (逆时针) 的任务 — 起步巡线前先调整朝向
+# move_for 第三分量 = 角度偏移, 正向逆时针; 角度单位弧度
+# seeding 转 15° (π/12), target_detection/watering 转 30° (π/6)
+_TURN_LEFT_RAD = {
+    "seeding": -(math.pi / 10),
+    "target_detection": math.pi / 6,
+    "watering": math.pi / 6,
+}
 
 # 每个任务结束后的机械臂位姿 (x, y, arm, hand) -- 手动调
 # 注意: x 合法范围 -0.315~0(m), y 合法范围 -0.2~0(m); 单位是米, 都是负方向!
 TASK_END_POSE = {
     "seeding": (-0.1, -0.05, "LEFT", "UP"),
     "target_detection": (-0.3, -0.05, "RIGHT", "UP"),
-    # X 保持安全位 -0.2(0 位移, 不往塔伸), Y 抬离 -0.15, 再转大臂 -93→+93 转离塔 → 不撞塔
-    "watering": (-0.2, -0.15, "LEFT", "UP"),
+    "watering": (-0.0, -0.05, "LEFT", "UP"),
     "shooting": (-0.25, -0.2, "LEFT", "DOWN"),
     "harvesting": (-0.0, 0, "LEFT", "UP"),
     "sorting": (-0.3, -0.05, "RIGHT", "UP"),
@@ -53,16 +56,18 @@ def _pin_arm_and_reset(car, task_name):
         x, y, arm, hand = pose
         print(f"[{task_name}] 钉机械臂位姿: x={x} y={y} arm={arm} hand={hand}")
         car.arm.set_arm_pose(x, y, arm, hand)
+    # ordering 结束后: 前进 1.8m, 再顺时针原地转 120° (与 lane-stop 标定一致)
     # 任务结束重置里程计 (覆盖 sorting 默认清零钩子, 统一每任务清零;
     # 触发距离都是相对本次巡线起点的, 不受影响)
     car.reset_position()
     car.get_odometry(True)
     car.get_distance(True)
     print(f"[{task_name}] 里程计已重置")
-    # 部分任务结束后沿逆时针转 60° (起步巡线前先调整朝向)
-    if task_name in _TURN_LEFT_TASKS:
-        print(f"[{task_name}] 沿逆时针转 60° (起步巡线)")
-        car.move_for([0.0, 0.0, _TURN_LEFT_RAD], max_velocities=[0.10, 0.10, math.pi / 6])
+    # 部分任务结束后沿逆时针转 (起步巡线前先调整朝向)
+    turn_rad = _TURN_LEFT_RAD.get(task_name)
+    if turn_rad is not None:
+        print(f"[{task_name}] 沿逆时针转 {math.degrees(turn_rad):.0f}° (起步巡线)")
+        car.move_for([0.0, 0.0, turn_rad], max_velocities=[0.10, 0.10, math.pi / 6])
 
 
 def main():

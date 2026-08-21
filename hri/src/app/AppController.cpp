@@ -29,9 +29,20 @@ AppController::AppController(QObject *parent)
                     emit currentTaskChanged();
                 }
                 emit backendOnlineChanged();
+                // 上线后拉取当前选中任务的参数配置
+                if (online)
+                    fetchTaskConfig(m_selectedTask);
             });
     connect(m_client, &RobotClient::eventReceived, this,
             [this](const QJsonObject &ev) { applyEvent(ev); });
+    connect(m_client, &RobotClient::taskConfigReceived, this,
+            [this](const QString &name, const QVariantMap &config) {
+                if (m_selectedTask >= 0 && m_selectedTask < m_tasks.size()
+                    && m_tasks[m_selectedTask].key == name) {
+                    m_taskConfig = config;
+                    emit taskConfigChanged();
+                }
+            });
     connect(m_client, &RobotClient::requestFailed, this,
             [this](const QString &msg) { emit notice(msg); });
 }
@@ -63,6 +74,7 @@ QVariantList AppController::tasks() const {
             { QStringLiteral("description"), t.description },
             { QStringLiteral("speed"),       t.speed },
             { QStringLiteral("status"),      t.status },
+            { QStringLiteral("selected"),    t.selected },
         });
     }
     return list;
@@ -79,9 +91,19 @@ double AppController::currentSpeed() const {
     return 0.0;
 }
 
+int AppController::selectedCount() const {
+    int n = 0;
+    for (const auto &t : m_tasks)
+        if (t.selected)
+            ++n;
+    return n;
+}
+
 QString AppController::backendAddress() const {
     return QStringLiteral("%1:%2").arg(m_host).arg(m_port);
 }
+
+QVariantMap AppController::taskConfig() const { return m_taskConfig; }
 
 void AppController::setPage(int index) {
     if (m_currentPage == index)
@@ -97,6 +119,34 @@ void AppController::selectTask(int index) {
     m_selectedTask = index;
     emit selectedTaskChanged();
     emit currentSpeedChanged();
+    // 拉取该任务的参数配置（lane PID / 触发参数）
+    fetchTaskConfig(index);
+}
+
+void AppController::toggleTaskSelected(int index) {
+    if (index < 0 || index >= m_tasks.size())
+        return;
+    m_tasks[index].selected = !m_tasks[index].selected;
+    emit tasksChanged();
+    // 同步到后端（选中哪几个就只跑哪几个）
+    if (backendOnline())
+        m_client->setSelectedTasks(selectedKeys());
+}
+
+void AppController::selectAllTasks(bool all) {
+    for (auto &t : m_tasks)
+        t.selected = all;
+    emit tasksChanged();
+    if (backendOnline())
+        m_client->setSelectedTasks(selectedKeys());
+}
+
+QStringList AppController::selectedKeys() const {
+    QStringList keys;
+    for (const auto &t : m_tasks)
+        if (t.selected)
+            keys.append(t.key);
+    return keys;
 }
 
 void AppController::setTaskSpeed(int index, double speed) {
@@ -110,6 +160,25 @@ void AppController::setTaskSpeed(int index, double speed) {
         m_client->setTaskSpeed(m_tasks[index].key, speed);
 }
 
+void AppController::fetchTaskConfig(int index) {
+    if (index < 0 || index >= m_tasks.size())
+        return;
+    if (!backendOnline())
+        return;
+    m_client->fetchTaskConfig(m_tasks[index].key);
+}
+
+void AppController::setTaskConfig(int index, const QVariantMap &config) {
+    if (index < 0 || index >= m_tasks.size())
+        return;
+    if (index == m_selectedTask) {
+        m_taskConfig = config;
+        emit taskConfigChanged();
+    }
+    if (backendOnline())
+        m_client->setTaskConfig(m_tasks[index].key, config);
+}
+
 void AppController::startFrom(int index) {
     if (index < 0 || index >= m_tasks.size())
         return;
@@ -117,17 +186,26 @@ void AppController::startFrom(int index) {
         emit notice(QStringLiteral("后端离线，无法启动"));
         return;
     }
-    // 乐观更新: index 前标 done, index 起跑
-    for (int i = 0; i < m_tasks.size(); ++i)
-        m_tasks[i].status = i < index ? QStringLiteral("done")
-                         : i == index ? QStringLiteral("running")
-                         : QStringLiteral("pending");
-    m_currentTask = index;
+    // 跑所有选中的任务（选中哪几个就只跑哪几个），from_index=-1 不跳过任何任务
+    // 乐观更新: 第一个选中的任务标 running, 其余选中的标 pending
+    int firstSelected = -1;
+    for (int i = 0; i < m_tasks.size(); ++i) {
+        if (m_tasks[i].selected) {
+            if (firstSelected < 0)
+                firstSelected = i;
+            m_tasks[i].status = QStringLiteral("pending");
+        }
+    }
+    if (firstSelected >= 0)
+        m_tasks[firstSelected].status = QStringLiteral("running");
+    m_currentTask = firstSelected;
     m_running = true;
     emit tasksChanged();
     emit currentTaskChanged();
     emit runningChanged();
-    m_client->start(index);
+    // 先同步选中子集（选中哪几个就只跑哪几个），再启动
+    m_client->setSelectedTasks(selectedKeys());
+    m_client->start(-1);
 }
 
 void AppController::runSingle(int index) {
@@ -299,6 +377,8 @@ void AppController::applyHello(const QJsonObject &hello) {
             m_tasks[idx].speed);
         m_tasks[idx].status = o.value(QStringLiteral("status")).toString(
             QStringLiteral("pending"));
+        if (o.contains(QStringLiteral("selected")))
+            m_tasks[idx].selected = o.value(QStringLiteral("selected")).toBool(true);
     }
     m_running = hello.value(QStringLiteral("active")).toBool();
     const QString cur = hello.value(QStringLiteral("current")).toString();

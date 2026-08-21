@@ -93,6 +93,8 @@ class CarBackend(abc.ABC):
         self._task_status: Dict[str, str] = {t: "pending" for t in TASK_ORDER}
         self._active = False
         self._current_task: Optional[str] = None
+        # 触摸屏选中的任务子集；None = 全部选中（默认跑全流程）
+        self._selected_tasks: Optional[set] = None
 
     # ------------------------------------------------------------------
     # 事件订阅
@@ -126,6 +128,7 @@ class CarBackend(abc.ABC):
             info = dict(TASK_INFO[key])
             info["speed"] = self._task_speeds.get(key, 0.3)
             info["status"] = self._task_status.get(key, "pending")
+            info["selected"] = self.is_task_selected(key)
             tasks.append(info)
         return {
             "type": EventType.HELLO,
@@ -164,6 +167,33 @@ class CarBackend(abc.ABC):
             self._task_speeds[name] = max(0.05, min(2.0, float(speed)))
 
     # ------------------------------------------------------------------
+    # 任务子集选择（触摸屏：选中哪几个就只跑哪几个）
+    # ------------------------------------------------------------------
+    def set_selected_tasks(self, task_names: Optional[List[str]]) -> None:
+        """设置触摸屏选中的任务子集。
+
+        - task_names=None 或空列表：全部选中（跑全流程）
+        - 否则：只跑列出的任务（按 TASK_ORDER 顺序），未列出的被跳过
+        """
+        if not task_names:
+            self._selected_tasks = None
+            return
+        valid = {t for t in task_names if t in TASK_ORDER}
+        self._selected_tasks = valid if valid else None
+
+    def is_task_selected(self, name: str) -> bool:
+        """判断某任务是否在选中子集内（None = 全部选中）。"""
+        if self._selected_tasks is None:
+            return True
+        return name in self._selected_tasks
+
+    def selected_tasks(self) -> List[str]:
+        """返回当前选中的任务列表（按 TASK_ORDER 顺序）。"""
+        if self._selected_tasks is None:
+            return list(TASK_ORDER)
+        return [t for t in TASK_ORDER if t in self._selected_tasks]
+
+    # ------------------------------------------------------------------
     # 状态查询
     # ------------------------------------------------------------------
     def tasks_snapshot(self) -> List[Dict[str, Any]]:
@@ -172,8 +202,17 @@ class CarBackend(abc.ABC):
             info = dict(TASK_INFO[key])
             info["speed"] = self._task_speeds.get(key, 0.3)
             info["status"] = self._task_status.get(key, "pending")
+            info["selected"] = self.is_task_selected(key)
             out.append(info)
         return out
+
+    def task_config_snapshot(self, name: str) -> Dict[str, Any]:
+        """返回某任务的默认触发配置（lane PID / 触发参数），供前端显示调节。"""
+        try:
+            from tasks.start.trigger_configs import default_trigger_config
+            return default_trigger_config(name)
+        except Exception:
+            return {}
 
     def status_snapshot(self) -> Dict[str, Any]:
         return {

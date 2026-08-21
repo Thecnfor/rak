@@ -32,6 +32,8 @@ set_source_files_properties(src/qml/components/TaskChain.qml PROPERTIES QT_RESOU
 set_source_files_properties(src/qml/components/SpeedControl.qml PROPERTIES QT_RESOURCE_ALIAS "components/SpeedControl.qml")
 set_source_files_properties(src/qml/components/StartButton.qml PROPERTIES QT_RESOURCE_ALIAS "components/StartButton.qml")
 set_source_files_properties(src/qml/components/TaskCockpit.qml PROPERTIES QT_RESOURCE_ALIAS "components/TaskCockpit.qml")
+set_source_files_properties(src/qml/components/ParamStepper.qml PROPERTIES QT_RESOURCE_ALIAS "components/ParamStepper.qml")
+set_source_files_properties(src/qml/components/TaskConfigPanel.qml PROPERTIES QT_RESOURCE_ALIAS "components/TaskConfigPanel.qml")
 set_source_files_properties(src/qml/components/GlassPanel.qml PROPERTIES QT_RESOURCE_ALIAS "components/GlassPanel.qml")
 set_source_files_properties(src/qml/components/GlyphIcon.qml PROPERTIES QT_RESOURCE_ALIAS "components/GlyphIcon.qml")
 set_source_files_properties(src/qml/Theme/Theme.qml PROPERTIES QT_RESOURCE_ALIAS "Theme/Theme.qml" QT_QML_SINGLETON_TYPE TRUE)
@@ -51,6 +53,8 @@ qt_add_qml_module(hri_app
         src/qml/components/SpeedControl.qml
         src/qml/components/StartButton.qml
         src/qml/components/TaskCockpit.qml
+        src/qml/components/ParamStepper.qml
+        src/qml/components/TaskConfigPanel.qml
         src/qml/components/GlassPanel.qml
         src/qml/components/GlyphIcon.qml
         src/qml/Theme/Theme.qml

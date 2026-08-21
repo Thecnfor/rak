@@ -1,5 +1,6 @@
 #include "RobotClient.h"
 
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonParseError>
 #include <QNetworkAccessManager>
@@ -119,4 +120,38 @@ void RobotClient::reset() { postCommand(QStringLiteral("/api/reset")); }
 void RobotClient::setTaskSpeed(const QString &name, double speed) {
     postCommand(QStringLiteral("/api/tasks/%1/speed").arg(name),
                 QJsonObject{{QStringLiteral("speed"), speed}});
+}
+
+void RobotClient::setSelectedTasks(const QStringList &tasks) {
+    QJsonArray arr;
+    for (const auto &t : tasks)
+        arr.append(t);
+    postCommand(QStringLiteral("/api/select"),
+                QJsonObject{{QStringLiteral("tasks"), arr}});
+}
+
+void RobotClient::setTaskConfig(const QString &name, const QVariantMap &config) {
+    postCommand(QStringLiteral("/api/tasks/%1/config").arg(name),
+                QJsonObject{{QStringLiteral("config"), QJsonObject::fromVariantMap(config)}});
+}
+
+void RobotClient::fetchTaskConfig(const QString &name) {
+    QUrl url(QStringLiteral("http://%1:%2/api/tasks/%3/config")
+                 .arg(m_host).arg(m_port).arg(name));
+    QNetworkRequest req(url);
+    QNetworkReply *reply = m_net->get(req);
+    connect(reply, &QNetworkReply::finished, reply, [this, reply, name]() {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit requestFailed(QStringLiteral("拉取参数失败: %1")
+                                   .arg(reply->errorString()));
+            return;
+        }
+        QJsonParseError err;
+        QJsonDocument doc = QJsonDocument::fromJson(reply->readAll(), &err);
+        if (err.error == QJsonParseError::NoError && doc.isObject()) {
+            const QJsonObject obj = doc.object();
+            emit taskConfigReceived(name, obj.value(QStringLiteral("config")).toObject().toVariantMap());
+        }
+    });
 }

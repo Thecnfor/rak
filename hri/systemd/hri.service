@@ -1,8 +1,8 @@
 [Unit]
 Description=HRI Human-Robot Interaction (control backend + Qt kiosk front-end)
-After=network-online.target graphical-session.target
-Wants=network-online.target graphical-session.target
-PartOf=graphical-session.target
+# 无桌面 framebuffer 模式：开机直接进 multi-user.target，HRI 用 linuxfb 独占屏幕
+After=network-online.target
+Wants=network-online.target
 Documentation=file:///home/xrak/rak/hri/README.md
 
 [Service]
@@ -52,4 +52,5 @@ SendSIGKILL=yes
 TimeoutStopSec=15
 
 [Install]
+# 用户级服务：linger 保证 user@ 会话开机启动，default.target 即用户会话默认 target
 WantedBy=default.target

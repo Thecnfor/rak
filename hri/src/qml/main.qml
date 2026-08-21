@@ -203,6 +203,20 @@ ApplicationWindow {
                                 color: Theme.accentSoft; font.pixelSize: 15; font.bold: true
                             }
                         }
+
+                        // 已选任务胶囊（触摸屏勾选参与执行的数量）
+                        Rectangle {
+                            height: 38; width: selText.width + 28; radius: 19
+                            color: Theme.withAlpha(Theme.cyan, 0.10)
+                            border.width: 1
+                            border.color: Theme.withAlpha(Theme.cyan, 0.40)
+                            Text {
+                                id: selText
+                                anchors.centerIn: parent
+                                text: "已选 " + app.selectedCount + "/" + app.tasks.length
+                                color: Theme.cyan; font.pixelSize: 14; font.bold: true
+                            }
+                        }
                     }
                 }
             }

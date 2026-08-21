@@ -2,6 +2,7 @@ import QtQuick
 import com.hri.app
 
 // 横排任务链: 玻璃任务卡 + 顺序连接线, 点选聚焦, 整体居中
+// 触摸屏交互: 点击卡片 = 聚焦该任务 + 切换勾选（选中哪几个就只跑哪几个）
 Item {
     id: chain
 
@@ -35,6 +36,7 @@ Item {
                     taskName: index % 2 === 0 ? chain.tasks[Math.floor(index / 2)].name : ""
                     status: index % 2 === 0 ? chain.tasks[Math.floor(index / 2)].status : ""
                     selected: Math.floor(index / 2) === chain.selectedTask
+                    checked: index % 2 === 0 ? chain.tasks[Math.floor(index / 2)].selected : true
                     accent: chain.accent
                     onClicked: (i) => chain.taskClicked(i)
                 }

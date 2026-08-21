@@ -113,16 +113,20 @@ class LaneMixin:
             _corr_threshold: |steer| 低于此值不叠加, 防抖(默认 0.05)
             _corr_weight:    steer 1.0 对应的角速度贡献(默认 0.5;
                              居中漂移 -> 调高, 跟线不稳 -> 调低, 抖动 -> 调大阈值)
-        """
-        v_min = getattr(self, "_lane_v_min", cfg.V_FORWARD)
-        v_max = max(speed, v_min)
-        corr_threshold = getattr(self, "_corr_threshold", cfg.CORR_THRESHOLD)
-        corr_weight = getattr(self, "_corr_weight", cfg.CORR_WEIGHT)
-        deadzone = getattr(self, "_lane_deadzone", cfg.PID_DEADZONE)
 
+        注意: v_min / deadzone / corr_* 每 tick 都从对象属性重新读取, 以便
+              lane_apply_params / lane_restore_params 在巡航中途切段切换参数
+              时立即生效 (Cruiser.segments 多段巡航依赖此机制)。
+        """
         while True:
             if self._stop_flag:
                 return
+
+            v_min = getattr(self, "_lane_v_min", cfg.V_FORWARD)
+            v_max = max(speed, v_min)
+            corr_threshold = getattr(self, "_corr_threshold", cfg.CORR_THRESHOLD)
+            corr_weight = getattr(self, "_corr_weight", cfg.CORR_WEIGHT)
+            deadzone = getattr(self, "_lane_deadzone", cfg.PID_DEADZONE)
 
             # 源头合成后的新一对: steer 居中 + da 转弯
             steer, da = self.get_lane_results()
