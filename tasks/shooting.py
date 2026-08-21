@@ -20,7 +20,7 @@ ANIMAL_CONF = 0.7
 
 MAX_SHOTS = 5  # 每个击倒点最多击发次数, 击倒即停
 
-FINAL_ADVANCE_M = 1.5  # 击倒 2 个后收尾前进的绝对位移(m, 现场标定)
+FINAL_ADVANCE_M = 1.5  # 击倒 2 个后收尾前进到的绝对位移(m, 现场标定)
 
 def _knocked_down(car, x_c, range_=KNOCK_RANGE):
     """击倒判定: 站位 x_c 附近找不到 animal ⇒ 已击倒."""
@@ -83,7 +83,7 @@ def run(car, animal_list=None):  # noqa: E741
                     print(f"击倒 {knock_count}/2")
                     break
             time.sleep(0.3)
-            if knock_count >= 2:  # 击倒 2 个后继续前进到绝对位移 1.5m 再停
+            if knock_count >= 2:  # 击倒 2 个后只向前移动到绝对位移 1.5m
                 _chassis(car, FINAL_ADVANCE_M, pos)
-                time.sleep(0.3)
+                print(f"[射击] 击倒 2 个, 前进到绝对位移 {FINAL_ADVANCE_M:.1f}m 停")
                 break
