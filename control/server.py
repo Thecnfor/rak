@@ -19,6 +19,14 @@ class SpeedRequest(BaseModel):
     speed: float = Field(..., ge=0.05, le=2.0)
 
 
+class SelectRequest(BaseModel):
+    tasks: List[str] = Field(default_factory=list)
+
+
+class ConfigRequest(BaseModel):
+    config: Dict[str, Any] = Field(default_factory=dict)
+
+
 class ConnectionManager:
     """管理所有活跃的 WebSocket 连接，广播后端事件。"""
 
@@ -145,12 +153,39 @@ def create_app(backend: CarBackend) -> FastAPI:
         backend.reset()
         return JSONResponse({"ok": True})
 
+    @app.post("/api/select")
+    async def api_select(req: SelectRequest) -> JSONResponse:
+        """设置触摸屏选中的任务子集（选中哪几个就只跑哪几个）。
+
+        tasks 为空 = 全部选中（跑全流程）；否则只跑列出的任务。
+        """
+        backend.set_selected_tasks(req.tasks)
+        return JSONResponse({"ok": True, "tasks": backend.selected_tasks()})
+
     @app.post("/api/tasks/{task}/speed")
     async def api_set_task_speed(task: str, req: SpeedRequest) -> JSONResponse:
         if task not in TASK_ORDER:
             raise HTTPException(status_code=404, detail=f"未知任务: {task}")
         backend.set_task_speed(task, req.speed)
         return JSONResponse({"ok": True, "task": task, "speed": req.speed})
+
+    @app.get("/api/tasks/{task}/config")
+    async def api_get_task_config(task: str) -> JSONResponse:
+        """返回某任务的默认触发配置（lane PID / 触发参数），供前端显示调节。"""
+        if task not in TASK_ORDER:
+            raise HTTPException(status_code=404, detail=f"未知任务: {task}")
+        return JSONResponse({"task": task, "config": backend.task_config_snapshot(task)})
+
+    @app.post("/api/tasks/{task}/config")
+    async def api_set_task_config(task: str, req: ConfigRequest) -> JSONResponse:
+        """设置某任务的参数覆盖（lane PID / 触发参数）。"""
+        if task not in TASK_ORDER:
+            raise HTTPException(status_code=404, detail=f"未知任务: {task}")
+        try:
+            backend.set_task_config(task, req.config)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        return JSONResponse({"ok": True, "task": task, "config": req.config})
 
     # ---------- WebSocket ----------
     @app.websocket("/ws")

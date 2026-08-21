@@ -9,7 +9,8 @@ Item {
     property int taskIndex: 0
     property string taskName: ""
     property string status: "pending"
-    property bool selected: false
+    property bool selected: false      // 聚焦选中（聚焦舱显示哪个）
+    property bool checked: true        // 勾选参与执行（触摸屏选中哪几个就只跑哪几个）
     property color accent: Theme.accent
     signal clicked(int index)
 
@@ -30,6 +31,10 @@ Item {
         if (status === "failed")  return Theme.withAlpha(Theme.danger, 0.08)
         return Theme.glass
     }
+
+    // 未勾选参与执行：整体淡化，提示"本轮不跑"
+    opacity: card.checked ? 1.0 : 0.45
+    Behavior on opacity { NumberAnimation { duration: Theme.msColor } }
 
     DropShadow {
         anchors.fill: face
@@ -128,6 +133,23 @@ Item {
                 }
                 font.pixelSize: 12
                 color: card.statusColor
+            }
+        }
+
+        // 勾选角标：右上角对勾（参与本轮执行）
+        Rectangle {
+            anchors.top: parent.top
+            anchors.right: parent.right
+            anchors.margins: 6
+            width: 20; height: 20; radius: 10
+            color: card.checked ? Theme.withAlpha(card.accent, 0.90) : Theme.withAlpha(Theme.bgTop, 0.55)
+            border.width: 1
+            border.color: card.checked ? Theme.withAlpha(card.accent, 0.6) : Theme.hairline
+            Text {
+                anchors.centerIn: parent
+                text: card.checked ? "✓" : ""
+                font.pixelSize: 13; font.bold: true
+                color: "#0A1405"
             }
         }
     }

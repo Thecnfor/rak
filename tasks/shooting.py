@@ -16,9 +16,11 @@ ALIGN_RANGE = 0.8
 # 击倒判定窗口(窄): 站位 x_c 附近找不到 animal 才算击倒, 避免误判远处残骸。
 KNOCK_RANGE = 0.2
 
-ANIMAL_CONF = 0.85
+ANIMAL_CONF = 0.70
 
 MAX_SHOTS = 5  # 每个击倒点最多击发次数, 击倒即停
+
+FINAL_ADVANCE_M = 0.5  # 击倒 2 个后收尾前进的固定距离(现场标定)
 
 def _knocked_down(car, x_c, range_=KNOCK_RANGE):
     """击倒判定: 站位 x_c 附近找不到 animal ⇒ 已击倒."""
@@ -84,4 +86,11 @@ def run(car, animal_list=None):  # noqa: E741
                     break
             time.sleep(0.3)
             if knock_count >= 2:  # 击倒 2 个即整个射击停止
+                # 收尾: 对齐第 4 只 animal 后前进固定距离再结束任务
+                x4 = X_C_LIST[3] if len(X_C_LIST) > 3 else X_C_LIST[-1]
+                car.move_to_detection_target(
+                    delta_x=0.0, delta_y=None, label="animal", sort_pos=(x4, 0),
+                    lock=True, min_score=ANIMAL_CONF, select_range=ALIGN_RANGE)
+                car.lane_dis_offset(speed=0.20, dis_hold=FINAL_ADVANCE_M)
+                time.sleep(0.3)
                 break

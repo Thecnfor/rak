@@ -1,6 +1,5 @@
 import time
 
-
 def find_goods(car, label, dy=-0.5):
     cls_id, det_label = car.move_to_detection_target(label=label, delta_y=dy)
     if det_label is not None:
@@ -21,7 +20,6 @@ def find_goods(car, label, dy=-0.5):
     if det_label is not None:
         return det_label
 
-
 def run(car):
     # 标签对应关系
     goods_dict = {
@@ -38,29 +36,31 @@ def run(car):
 
     text_list = []  # 订单的文本信息
     order_list = []  # 订单的大模型分析信息
-
-    car.arm.reset_position()
-    car.lane_dis_offset(speed=0.3, dis_hold=1.5)
-    # 对齐订单
-    cls_id, label = car.move_to_detection_target(delta_y=None)
+    end_time = time.time() + 3.0
+    start_time = time.time()
+    a=0
+    while True:
+        car.arm.x_speed(-0.20)
+        a += 1
+        print(a)
+        if time.time() > end_time:
+            break
+    time.sleep(10)
+    car.arm.x_speed(0)
+    car.arm.set_arm_pose(arm="RIGHT", hand="MID")
     # 推动推杆
     car.move_for([0.065, 0, 0])
-    car.arm.move_x_position(0.23)
-    car.arm.move_x_position(0.1, out_time=4.0)
-    # 识别随机标签
-    car.move_for([-0.06, 0, 0])
-    cls_id, label = car.move_to_detection_target(delta_y=None)
+    car.arm.move_x_position(-0.05)
+    # 识别固定标签
+    car.arm.set_arm_pose(x=-0.15, y=-0.15)
+    car.move_for([-0.065, 0, 0])
     time.sleep(0.2)
     text_list.append(car.get_ocr(label="order"))
     car.beep()
-    # 识别固定标签
-    car.arm.move_y_position(0.2)
-    car.arm.move_x_position(0.21)
-    car.arm.set_hand_angle("MID")
-    car.arm.set_arm_angle("RIGHT")
+    # 识别随机标签
+    car.arm.move_y_position(-0.06)
+    car.arm.set_arm_pose(x=-0.06, y=-0.15)
     time.sleep(0.3)
-    cls_id, label = car.move_to_detection_target()
-    time.sleep(0.2)
     text_list.append(car.get_ocr(label="order"))
     car.beep()
 
@@ -76,14 +76,14 @@ def run(car):
     order_list.sort(key=lambda x: x["address"])
     print(order_list)
 
-    car.lane_dis_offset(speed=0.3, dis_hold=0.2)
+    car.lane_dis_offset(speed=0.2, dis_hold=0.20)
     car.arm.set_hand_angle(angle="DOWN")
 
     loc = car.get_odometry(True)
 
     car.set_storage(True)  # 抬起存储架
     car.arm.move_y_position(0.2)
-    car.arm.move_x_position(0.30)
+    car.arm.move_x_position(0)
     cls_id, label = car.move_to_detection_target(delta_y=None)
     goods_now = order_list[1]["goods"]
     find_goods(car, goods_dict[goods_now])

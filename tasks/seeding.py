@@ -423,4 +423,7 @@ def run(car):
         px, py, parm, phand = place_pose
         car.arm.set_arm_pose(px, py, parm, phand)
         _place(car)
+    # 全部搬完 → 回到 s3 (最后一个抓取位置, SOURCE[3]=0.30m)
+    print(f"[播种] 全部搬完, 回到 s3 (SOURCE[3]=0.30m)")
+    _chassis(car, SOURCE[3], pos)
     return completed

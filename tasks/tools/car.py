@@ -196,7 +196,7 @@ class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
         flag = 1 if state else 0
         self.servo_1.set_angle(self.servo_1_angle_list[flag])
 
-    def shooting(self, pulse_seconds=0.23):
+    def shooting(self, pulse_seconds=0.30):
         """击发一发子弹 (电磁式: 继电器 → 击发电磁铁)。
 
         参数:

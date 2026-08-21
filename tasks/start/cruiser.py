@@ -87,19 +87,81 @@ class Cruiser:
             trigger = None
             odometer_trigger = OdometerTrigger(start_distance, cfg["distance"])
 
+        # segments 多段支持 (odometer 专用): 按段累积 distance, 到段边界切换 lane/v_forward
+        segments: Optional[List[Dict]] = cfg.get("segments")
+        if segments is not None and not isinstance(segments, list):
+            segments = None
+        if segments is not None and len(segments) == 0:
+            segments = None
+        seg_idx: int = 0
+        seg_cumul: List[float] = []  # 每段结束时的累计里程(相对 start_distance)
+        if segments is not None:
+            cum = 0.0
+            for s in segments:
+                cum += float(s.get("distance", 0.0))
+                seg_cumul.append(cum)
+
         # 清理按键 / 状态
         self.host._flush_keys()
         self.host._skipped = False
         self.host._emergency = False
 
         # 前进速度: 取 lane.v_forward (每任务独立), 缺省回落公共默认 cfg.speed
-        seg = cfg.get("lane") or {}
+        # 多段时: 初始取 segments[0].lane.v_forward, 段切换时重设 seg
+        def _current_seg() -> Optional[Dict]:
+            if segments is None:
+                return None
+            return segments[min(seg_idx, len(segments) - 1)]
+
+        init_seg = _current_seg()
+        seg = (init_seg.get("lane") if init_seg else None) or (cfg.get("lane") or {})
         forward_speed = float(seg.get("v_forward", cfg["speed"]))
         advance = float(cfg.get("advance", 0.0))
         # advance 状态: 触发确认时记录里程计/原因, 继续前进 advance 米再停
         adv_odom: Optional[float] = None  # 触发确认时的里程计
         adv_reason: str = ""
         adv_label: Optional[str] = None
+
+        def _maybe_switch_segment(cur_rel: float) -> None:
+            """根据当前累计里程 cur_rel(相对 start_distance), 走到段边界时切 seg 参数.
+
+            段切换: 调用 lane_restore_params 还原上一段 -> lane_apply_params 应用新段
+            -> 同步更新 forward_speed.
+            """
+            nonlocal seg_idx, seg, forward_speed
+            if segments is None or seg_cumul is None:
+                return
+            # 找到 cur_rel 所在的段
+            new_idx = 0
+            for i, bound in enumerate(seg_cumul):
+                if cur_rel >= bound:
+                    new_idx = i + 1
+                else:
+                    break
+            if new_idx >= len(segments):
+                new_idx = len(segments) - 1
+            if new_idx != seg_idx:
+                logger.info(
+                    f"[cruise:{task_name}] 切段: {seg_idx} -> {new_idx} "
+                    f"rel={cur_rel:.3f}m"
+                )
+                seg_idx = new_idx
+                new_seg = segments[seg_idx]
+                new_lane = new_seg.get("lane") or {}
+                try:
+                    car.lane_restore_params()
+                except Exception as e:
+                    logger.warning(
+                        f"[cruise:{task_name}] 切段 lane_restore 异常: {e}"
+                    )
+                try:
+                    car.lane_apply_params(new_lane)
+                except Exception as e:
+                    logger.warning(
+                        f"[cruise:{task_name}] 切段 lane_apply 异常: {e}"
+                    )
+                seg = new_lane
+                forward_speed = float(seg.get("v_forward", cfg["speed"]))
 
         # 停止判定: 每 tick 都跑 (lane_base 的 end_fuction 会高频调用)
         def _should_stop() -> Tuple[bool, str, Optional[str]]:
@@ -113,6 +175,8 @@ class Cruiser:
             # 3) start_dist 窗口: 没走到就不检查触发
             cur_dist = float(car.get_distance())
             rel = cur_dist - start_distance
+            # 3.1) 多段参数切换 (在 start_dist 窗口内/外都允许切, 以免段边界在 start_dist 内漏切)
+            _maybe_switch_segment(rel)
             if rel >= float(cfg["start_dist"]):
                 if trigger is not None:  # 视觉
                     trigger.check(car)

@@ -64,15 +64,12 @@ def _pin_arm_and_reset(car, task_name: str) -> None:
 
 
 def _build_real_backend(stream: bool = True):
-    """初始化真实硬件后端。失败则抛异常，由上层捕获回退 mock。"""
-    from tasks.tools import create_car
-    from tasks.orchestrator import Orchestrator
-    from .real_backend import RealBackend
+    """构建真实硬件后端（延迟初始化：点"开始"才 create_car 占串口）。
 
-    car = create_car(reset=True, comp_mode=True, stream=stream)
-    orch = Orchestrator(car)
-    for task_name in TASK_ORDER:
-        orch.set_after_hook(task_name, _pin_arm_and_reset)
+    启动时不初始化硬件，只把配置传给 RealBackend；用户点"开始"时才
+    _ensure_hardware() 初始化 create_car + Orchestrator，走 run.py 标准流程。
+    """
+    from .real_backend import RealBackend
 
     task_kwargs = {
         "shooting": {
@@ -82,8 +79,13 @@ def _build_real_backend(stream: bool = True):
             "order_list": lambda results: results.get("ordering"),
         },
     }
-    backend = RealBackend(orch, task_kwargs=task_kwargs)
-    return backend, car
+    backend = RealBackend(
+        task_kwargs=task_kwargs,
+        stream=stream,
+        static_skip=set(),
+        after_hook=_pin_arm_and_reset,
+    )
+    return backend, None
 
 
 def _build_app(
@@ -95,9 +97,9 @@ def _build_app(
     """根据模式构建 (app, backend, car_or_None)。"""
     car = None
     if mode == "real":
-        print("[control] 初始化真实硬件后端...")
+        print("[control] 构建真实后端（延迟初始化：点开始才占串口）")
         backend, car = _build_real_backend(stream=stream)
-        print(f"[control] 已连接 Orchestrator, 任务数 {len(TASK_ORDER)}")
+        print(f"[control] 后端就绪, 任务数 {len(TASK_ORDER)} (硬件待开始后初始化)")
     else:
         print("[control] 使用 Mock 后端 (无硬件模式)")
         backend = MockBackend()
