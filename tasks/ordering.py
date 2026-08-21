@@ -20,6 +20,25 @@ def find_goods(car, label, dy=-0.5):
     if det_label is not None:
         return det_label
 
+def _grab_goods(car, goods_dict, goods_name, name, arm_y_final):
+    """按订单货物名查找并抓取，任何一步失败都跳过抓取而不是盲抓。"""
+    if goods_name not in goods_dict:
+        print(f"未识别货物类别: {goods_name}")
+        return False
+    if not find_goods(car, goods_dict[goods_name]):
+        print(f"未找到货物: {goods_name}")
+        return False
+    print(f"正在拿取{name}：{goods_name}")
+    time.sleep(0.2)
+    car.arm.grasp(True)
+    car.arm.move_y_position(0.05)
+    car.arm.move_y_position(0.2)
+    car.arm.move_x_position(0.0)
+    car.arm.move_y_position(arm_y_final)
+    time.sleep(0.2)
+    car.arm.grasp(False)
+    return True
+
 def run(car):
     # 标签对应关系
     goods_dict = {
@@ -36,17 +55,6 @@ def run(car):
 
     text_list = []  # 订单的文本信息
     order_list = []  # 订单的大模型分析信息
-    end_time = time.time() + 3.0
-    start_time = time.time()
-    a=0
-    while True:
-        car.arm.x_speed(-0.20)
-        a += 1
-        print(a)
-        if time.time() > end_time:
-            break
-    time.sleep(10)
-    car.arm.x_speed(0)
     car.arm.set_arm_pose(arm="RIGHT", hand="MID")
     # 推动推杆
     car.move_for([0.065, 0, 0])
@@ -65,16 +73,21 @@ def run(car):
     car.beep()
 
     print(text_list)
-    # 使用大模型分析订单
+    # 使用大模型分析订单，跳过解析失败的条目（OCR失败返回None，解析异常返回字符串）
     for text in text_list:
         if text is None:
-            order_list.append(None)
             continue
         order_info = car.order_analysis.get_res_json(text)
+        if not isinstance(order_info, dict) or "goods" not in order_info or "address" not in order_info:
+            print(f"订单解析失败: {text}")
+            continue
         order_list.append(order_info)
     # 对订单排序，先拿2号楼的
     order_list.sort(key=lambda x: x["address"])
     print(order_list)
+    if not order_list:
+        print("未识别到有效订单")
+        return []
 
     car.lane_dis_offset(speed=0.2, dis_hold=0.20)
     car.arm.set_hand_angle(angle="DOWN")
@@ -85,33 +98,15 @@ def run(car):
     car.arm.move_y_position(0.2)
     car.arm.move_x_position(0)
     cls_id, label = car.move_to_detection_target(delta_y=None)
-    goods_now = order_list[1]["goods"]
-    find_goods(car, goods_dict[goods_now])
-    print(f"正在拿取第一个货物：{goods_now}")
-    time.sleep(0.2)
-    car.arm.grasp(True)
-    car.arm.move_y_position(0.05)
-    car.arm.move_y_position(0.2)
-    car.arm.move_x_position(0.0)
-    car.arm.move_y_position(0.09)
-    time.sleep(0.2)
-    car.arm.grasp(False)
-    # 拿第二个货物
+    # 先拿2号楼的货（排序后是索引1）；订单不足2条时跳过
+    if len(order_list) >= 2:
+        _grab_goods(car, goods_dict, order_list[1]["goods"], "第一个货物", 0.09)
+    # 拿第二个货物（1号楼）
     car.move_to_position(loc)
     car.arm.move_y_position(0.2)
     car.arm.move_x_position(0.30)
     cls_id, label = car.move_to_detection_target(delta_y=None)
-    goods_now = order_list[0]["goods"]
-    find_goods(car, goods_dict[goods_now])
-    print(f"正在拿取第二个货物：{goods_now}")
-    time.sleep(0.2)
-    car.arm.grasp(True)
-    car.arm.move_y_position(0.05)
-    car.arm.move_y_position(0.2)
-    car.arm.move_x_position(0.0)
-    car.arm.move_y_position(0.14)
-    time.sleep(0.2)
-    car.arm.grasp(False)
+    _grab_goods(car, goods_dict, order_list[0]["goods"], "第二个货物", 0.14)
 
     car.move_to_position(loc)
     return order_list
