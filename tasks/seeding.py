@@ -169,7 +169,7 @@ def _scan_label(car):
     return max(present, key=lambda l: (counts[l], -CYLINDERS.index(l)))
 
 
-def _ensure_hand(car, target=-20.0, retries=3, settle=0.2):
+def _ensure_hand(car, target=-20.0, retries=2, settle=0.1):
     """视觉对齐前强制末端手爪到位: 舵机无位置回读(只能发不能读),
     故以"连发命令+等舵机到位时间+重试"覆盖丢帧/大电流复位场景,
     保证手爪确实在 target 角度再开始对齐/抓取。"""
@@ -253,7 +253,7 @@ def _pick(car, label):
     )
     if not ok:
         print(f"[抓取] {label} 对齐未收敛, 继续按当前位下放抓取")
-    _ensure_hand(car)  # ② 抓取前再兜底: 滑轨/Y 大电流移动可能又把舵机打回 -90
+    _ensure_hand(car, -15)  # ② 抓取前再兜底: 视觉对齐后, 末端调 -15 下探(仅此一次改 -15, 其余保持 -20)
     car.arm.grasp(True)                  # 下降前先吸气(下降途中吸嘴已在吸)
     car.arm.move_y_position(GRASP_Y)     # 降到最底(0)吸
     time.sleep(GRASP_HOLD)               # 到底停 0.4s, 吸稳再抬
