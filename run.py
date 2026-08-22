@@ -48,7 +48,7 @@ _TURN_LEFT_RAD = {
 # 注意: x 合法范围 -0.315~0(m), y 合法范围 -0.2~0(m); 单位是米, 都是负方向!
 TASK_END_POSE = {
     "seeding": (-0.1, -0.05, "LEFT", "UP"),
-    "target_detection": (-0.3, -0.05, "RIGHT", "UP"),
+    "target_detection": (-0.2, -0.02, "RIGHT", "UP"),  # 对齐 watering.DETECT_POSE; 旧值 -0.3 不可达致 arm Timeout
     "watering": (-0.0, -0.05, "LEFT", "UP"),
     "shooting": (-0.25, -0.2, "LEFT", "DOWN"),
     "harvesting": (-0.0, 0, "LEFT", "UP"),
