@@ -20,29 +20,32 @@ class OcrErnieMixin:
         img_h, img_w = img_shape[:2]
         return norm_box_to_pixel(x_c, y_c, w, h, img_w, img_h, scale)
 
-    def animal_image_analysis(self):
-        dets = self.get_detection_results()
-        if len(dets) <= 0:
-            print("未检测到任何目标，无法裁剪")
-            return None, None
-        cls_id, det_id, label, score, x_c, y_c, w, h = dets[0]
-        image = self.side_image.copy()
+    def animal_image_analysis(self, det=None, image=None, scale=1.2):
+        """裁剪目标框送大模型, 返回害/益(0/1); 失败返回 None.
+
+        det:   检测结果行 [cls_id, obj_id, label, score, x_c, y_c, w, h];
+               不传时走阻塞式 get_detection_results 取最近目标(旧行为)。
+        image: 裁剪源帧; 不传用 self.side_image(上次阻塞检测的帧)。
+        scale: 裁剪框放大系数(留边, 抗车移动导致的框位偏移)。
+        """
+        if det is None:
+            dets = self.get_detection_results()
+            if len(dets) <= 0:
+                print("未检测到任何目标，无法裁剪")
+                return None
+            det = dets[0]
+        image = self.side_image.copy() if image is None else image
 
         # 将归一化坐标转换为像素坐标
         img_h, img_w = image.shape[:2]
-        x1, y1, x2, y2 = norm_box_to_pixel(x_c, y_c, w, h, img_w, img_h)
-
-        # img_h, img_w = image.shape[:2]
-
-        # # 计算坐标 + 强制边界保护（核心修复！）
-        # x1 = int(max(0, x_c - w / 2))
-        # y1 = int(max(0, y_c - h / 2))
-        # x2 = int(min(img_w, x_c + w / 2))
-        # y2 = int(min(img_h, y_c + h / 2))
+        x1, y1, x2, y2 = norm_box_to_pixel(det[4], det[5], det[6], det[7], img_w, img_h, scale)
+        # 边界钳制(放大留边可能越界, numpy 负索引会绕回错误区域)
+        x1, y1 = max(0, x1), max(0, y1)
+        x2, y2 = min(img_w, x2), min(img_h, y2)
         # 防止裁剪出空图（核心修复！）
         if x2 <= x1 or y2 <= y1:
             print("裁剪区域无效，跳过")
-            return None, None
+            return None
         cropped_img = image[y1:y2, x1:x2]
 
         _, img_encoded = cv2.imencode(".jpg", cropped_img)
