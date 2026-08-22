@@ -81,6 +81,7 @@ def run(car) -> list:
         return len(captures) >= MAX_ANIMALS  # 采集满 4 只即停, 不用等大模型
 
     car.move_base([CRUISE_SPEED, 0, 0], end)  # 纯直线经行(开环, 不看车道), 采集满 4 只即停
+    car.move_distance([CRUISE_SPEED, 0, 0], dis=0.06)  # 采集满 4 只后再向前 7cm
 
     alive[0] = False
     th.join(timeout=2.0)
