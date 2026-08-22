@@ -2,10 +2,17 @@
 # -*- coding: utf-8 -*-
 """完整比赛流程入口：一键编排（comp_mode）。
 
-按键语义（由 Orchestrator 统一接管）:
-    4 = 一键启动 / 一轮结束后重来
-    1 = 跳过当前任务 (不标记完成, 下次重来仍补做)
-    3 = 急停退出
+按键语义（由 Orchestrator 统一接管，全部点按）:
+    等待态:
+        4 = 全量开始（自动清空上一轮进度，从第 1 个任务跑完整轮）
+        1 = 跳过第 1 个任务开始（只跳过任务 run 逻辑，仍正常巡线到任务点停，
+            后续任务正常执行）
+        2 = 跳过第 1、2 个任务开始（暂保留原逻辑，待他人修改）
+        3 = 立即重新初始化（蜂鸣+机械臂复位+里程计清零+清空进度，
+            回到开机初始状态，像全新的一样）
+    运行中:
+        1 = 跳过当前任务 (不标记完成, 下次重来仍补做)
+        3 = 停止本轮，回到等待态
 
 路段巡线特调 / 任务点触发(advance 后停) / 任务后钉底盘姿势(end_pose)
 的配置在 tasks/start/trigger_configs.py 的 TASK_TRIGGER 表里逐段填。
@@ -20,6 +27,7 @@ from tasks.start.trigger_configs import TASK_ORDER
 
 import math
 import sys
+import time
 
 
 # 跳过这些任务(不跑巡线/钩子/钉姿势), 填 TASK_ORDER 里的任务名即可
@@ -70,13 +78,90 @@ def _pin_arm_and_reset(car, task_name):
         car.move_for([0.0, 0.0, turn_rad], max_velocities=[0.10, 0.10, math.pi / 6])
 
 
+class _CompetitionOrchestrator(Orchestrator):
+    """等待态按键语义（点按）:
+
+        4 = 全量开始   清空上一轮进度，从第 1 个任务跑完整轮
+        1 = 跳过任务 1 开始  只跳过任务 run 逻辑, 仍正常巡线到任务点停
+        2 = 跳过任务 1、2 开始（暂保留原逻辑, 待他人修改）
+        3 = 重新初始化 蜂鸣+机械臂复位+里程计清零+清空进度，回到开机初始状态
+
+    任务运行中沿用 Orchestrator 原语义: 1=跳过当前任务 / 3=停止本轮。
+    """
+
+    KEY_SKIP2 = 2  # 等待态: 跳过前 2 个任务开始
+
+    def __init__(self, car):
+        super().__init__(car)
+        # 本轮"巡航通过"的任务集合: 正常巡线到任务点停, 只跳过 run(car) 逻辑
+        self.run_skip: set = set()
+
+    def _reset_round(self) -> None:
+        """清空本轮进度与结果，回到"从未开始"状态(下次按 4/1/2 都是新的一轮)."""
+        self.done.clear()
+        self.run_skip.clear()
+        try:
+            self._runner.results.clear()
+        except Exception:
+            pass
+        print("本轮进度与结果已清空")
+
+    def _reinit(self) -> None:
+        """立即重新初始化 —— 与 create_car(reset=True) 一致:
+        蜂鸣提示 + 机械臂复位(竖直/水平回家位) + 里程计清零, 再清空本轮进度。
+        相机/推流/推理后端不重启, 只把车体状态和一轮新进度复位成"刚开机"。
+        """
+        try:
+            self.car.beep()
+            self.car.arm.reset_position()
+            self.car.reset_position()
+        except Exception as e:
+            print(f"重新初始化异常: {e}")
+        self._reset_round()
+
+    def wait_start(self) -> None:
+        """阻塞等待启动按键: 4 全量 / 1 跳过任务1 / 2 跳过任务1、2 / 3 重新初始化."""
+        print(
+            "等待一键启动...（4 全量开始 / 1 跳过任务1开始 "
+            "/ 2 跳过任务1、2开始 / 3 重新初始化）"
+        )
+        self._flush_keys()
+        while self.running:
+            key = self._pop_key()
+            if key == self.KEY_START:  # 4: 全量开始
+                self._reset_round()
+                print("一键启动（全量）!")
+                return
+            if key == self.KEY_SKIP:  # 1: 跳过任务1开始(只跳过run逻辑, 仍巡线到点)
+                self._reset_round()
+                skipped = self.TASK_ORDER[:1]
+                self.run_skip.update(skipped)
+                print(
+                    f"一键启动（跳过 {', '.join(skipped)} 的任务逻辑, "
+                    "仍巡线到任务点停）!"
+                )
+                return
+            if key == self.KEY_SKIP2:  # 2: 跳过前 2 个任务开始(原逻辑, 别人再改)
+                self._reset_round()
+                skipped = self.TASK_ORDER[:2]
+                self.done.update(skipped)
+                print(f"一键启动（跳过 {', '.join(skipped)}）!")
+                return
+            if key == self.KEY_EMERGENCY:  # 3: 立即重新初始化(像全新开机)
+                print("=== 重新初始化（回到初始状态，像全新的一样）===")
+                self._reinit()
+                print("重新初始化完成，等待一键启动...")
+                continue
+            time.sleep(0.05)
+
+
 def main():
     # --no-stream: 不启动 MJPEG 推流(省推流线程+每帧编码 CPU), 检测/巡线不受影响
     no_stream = "--no-stream" in sys.argv
     car = create_car(
         reset=True, comp_mode=True, stream=not no_stream
     )  # 初始化(含机械臂与里程计复位) + 比赛模式按键接管
-    orch = Orchestrator(car)
+    orch = _CompetitionOrchestrator(car)
     orch.skip = set(SKIP_TASKS)  # 静态跳过: 整个流程不跑这些任务
 
     # 每个任务结束: 钉机械臂位姿 + 重置里程计

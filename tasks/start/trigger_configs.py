@@ -126,7 +126,7 @@ TASK_TRIGGER: Dict[str, Dict] = {
     "target_detection": {
         "type": "vision",
         "labels": ["animal"],  # 识别到 animal 即触发
-        "min_score": 0.8,  # 置信度 >=0.6 才算命中
+        "min_score": 0.75,  # 置信度 >=0.6 才算命中
         "confirm": 1,  # 连续 3 帧命中才确认
         "fresh": False,  # 用实时缓存, 最快
         "max_age": 0.1,  # 缓存最多 0.3s 内的检测结果
@@ -169,15 +169,29 @@ TASK_TRIGGER: Dict[str, Dict] = {
         "confirm": 3,
         "fresh": True,
         "max_age": 0.1,
+        "segments": [
+            {
+                "distance": 1.5,
+                "lane": {
+                    "kp": 2.5,
+                    "kd": 0.0,
+                    "deadzone": 0.0,
+                    "v_forward": 0.6,
+                },
+            },
+            {
+                "distance": 1.5,
+                "lane": {
+                    "kp": 2,
+                    "kd": 0.0,
+                    "deadzone": 0.0,
+                    "v_forward": 0.3,
+                },
+            },
+        ],
         "max_run": 3.0,
         "time_out": 300.0,
         "start_dist": 2.2,
-        "lane": {  # 本路段巡线特调(每任务独立, 跑完自动还原)
-            "kp": 2.5,
-            "kd": 0.0,
-            "deadzone": 0.0,
-            "v_forward": 0.6,
-        },
     },
     "harvesting": {
         "type": "vision",

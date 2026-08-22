@@ -122,6 +122,9 @@ class TaskRunner:
         task_name = pending[0]
         task_args = task_args or {}
         task_kwargs = task_kwargs or {}
+        # 本轮"巡航通过"的任务: 正常巡线到任务点停, 只跳过 run(car) 逻辑
+        # (等待态按 1 选"跳过任务1"时由 run.py 的 _CompetitionOrchestrator 设置)
+        run_skip = task_name in getattr(self.host, "run_skip", set())
 
         # 1) 巡线到触发点
         cruise_res = self.cruiser.cruise_to_trigger(task_name)
@@ -136,9 +139,9 @@ class TaskRunner:
         # 2) before 钩子
         self.hooks.call_before(self.host.car, task_name)
 
-        # 3) 可选: 调用任务 run(car)
+        # 3) 可选: 调用任务 run(car); run_skip 的任务只巡线到点, 跳过 run 逻辑
         task_return = None
-        if auto_run:
+        if auto_run and not run_skip:
             args = task_args.get(task_name, ())
             kwargs = dict(task_kwargs.get(task_name, {}))  # 拷贝, 避免污染调用方配置
             # 结果链接力: kwargs 值为 callable 时, 用已完成任务的返回值表实时求值
@@ -160,6 +163,10 @@ class TaskRunner:
                 if skipped:
                     print(f"[run_all] {task_name} 执行期间被跳过 (不标记完成)")
                     return True, task_name, cruise_res, task_return
+        elif run_skip:
+            # 巡航正常到点后, 跳过任务 run 逻辑 (结果回落下游默认 None)
+            print(f"[run_all] {task_name} 跳过任务逻辑(run): 仅巡线到任务点停")
+            self.results[task_name] = None
 
         # 4) 任务结束钉姿势: 无论车停在哪个姿势, 都 go_to_pose 到配置的
         #    绝对 end_pose, 让下一个任务从已知姿势开始 (放在 after 钩子前,

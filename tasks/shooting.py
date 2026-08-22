@@ -3,9 +3,11 @@ import time
 from tasks.target_detection import ANIMAL_CONF
 
 LANE_PID = dict(
-    kp=0.0, ki=0.0, kd=0.0,     # 转向 PID: 全局 6.5 -> 4.0, 防直道摆动
-    limits=(0, 0),         # 角速度限幅: 全局 ±4.5 -> ±3.0
-    deadzone=0.05,              # da 死区: 直线噪声 ~0.1, 全局 0.0 未启用 -> 削掉
+    kp=0.0,
+    ki=0.0,
+    kd=0.0,  # 转向 PID: 全局 6.5 -> 4.0, 防直道摆动
+    limits=(0, 0),  # 角速度限幅: 全局 ±4.5 -> ±3.0
+    deadzone=0.05,  # da 死区: 直线噪声 ~0.1, 全局 0.0 未启用 -> 削掉
 )
 
 X_C_LIST = [0.36, 0.27, 0.31, 0.29]
@@ -22,13 +24,16 @@ MAX_SHOTS = 5  # 每个击倒点最多击发次数, 击倒即停
 
 FINAL_ADVANCE_M = 1.4  # 击倒全部害兽后收尾前进到的绝对位移(m, 现场标定)
 
+
 def _knocked_down(car, x_c, range_=KNOCK_RANGE):
     """击倒判定: 站位 x_c 附近找不到 animal ⇒ 已击倒."""
     dets = [
-        d for d in car.get_detection_results(score_thresh=ANIMAL_CONF)
+        d
+        for d in car.get_detection_results(score_thresh=ANIMAL_CONF)
         if d[2] == "animal" and abs(d[4] - x_c) <= range_
     ]
     return not dets
+
 
 def _chassis(car, target, pos):
     """闭环行驶到绝对位置 target(m), 自记账, 不依赖 odom 绝对值."""
@@ -39,6 +44,7 @@ def _chassis(car, target, pos):
     car.lane_dis_offset(speed=0.10, dis_hold=dx)
     pos[0] = target
 
+
 def run(car, animal_list=None):  # noqa: E741
 
     if animal_list is None:
@@ -46,7 +52,9 @@ def run(car, animal_list=None):  # noqa: E741
     # 害/益 保留外部 value, x_c 一律用自己指定的 X_C_LIST (缺省兜底 0.44)
     animal_list = [
         (v, X_C_LIST[i]) if i < len(X_C_LIST) else (v, 0.34)
-        for i, (v, _) in enumerate((x, 0.0) if isinstance(x, int) else x for x in animal_list)
+        for i, (v, _) in enumerate(
+            (x, 0.0) if isinstance(x, int) else x for x in animal_list
+        )
     ]
     print("animal_list =", animal_list)
     step = 0.15  # 每个目标间距
@@ -64,8 +72,12 @@ def run(car, animal_list=None):  # noqa: E741
     car.arm.set_arm_pose(x=-0.25, y=-0.04)
     with car.lane_config(LANE_PID):
         car.move_to_detection_target(
-                delta_x=X_C_LIST[0], delta_y=None,label="animal",sort_pos=(0, 0),
-                min_score=ANIMAL_CONF)  # 起步对齐用 X_C_LIST[0]
+            delta_x=hit_x[0] if hit_x else X_C_LIST[0],
+            delta_y=None,
+            label="animal",
+            sort_pos=(0, 0),
+            min_score=ANIMAL_CONF,
+        )  # 对齐第一个打击点 (用它的 x_c 选中, 无打击点兜底 X_C_LIST[0])
         knock_count = 0  # 已击倒数
         pos = [0.0]  # 底盘纵向自记账, 起点=对齐 animal_list[0] 处
         for idx, x_c in zip(hit_idx, hit_x):
@@ -73,8 +85,14 @@ def run(car, animal_list=None):  # noqa: E741
             time.sleep(0.2)
             for _ in range(MAX_SHOTS):  # 每点最多击发 MAX_SHOTS 次, 击倒即停
                 car.move_to_detection_target(  # 每次击发前重新对齐(未击倒才走到这)
-                    delta_x=x_c, delta_y=None, label="animal", sort_pos=(0.17, 0), lock=True,
-                    min_score=ANIMAL_CONF, select_range=ALIGN_RANGE)  # 对齐击打点 (用 x_c 选中该只)
+                    delta_x=x_c,
+                    delta_y=None,
+                    label="animal",
+                    sort_pos=(0.17, 0),
+                    lock=True,
+                    min_score=ANIMAL_CONF,
+                    select_range=ALIGN_RANGE,
+                )  # 对齐击打点 (用 x_c 选中该只)
                 time.sleep(0.2)
                 car.beep()
                 car.shooting()
@@ -86,5 +104,7 @@ def run(car, animal_list=None):  # noqa: E741
             time.sleep(0.3)
             if knock_count >= target_count:  # 击倒全部害兽后只向前移动到绝对位移 1.3m
                 _chassis(car, FINAL_ADVANCE_M, pos)
-                print(f"[射击] 击倒 {target_count} 个, 前进到绝对位移 {FINAL_ADVANCE_M:.1f}m 停")
+                print(
+                    f"[射击] 击倒 {target_count} 个, 前进到绝对位移 {FINAL_ADVANCE_M:.1f}m 停"
+                )
                 break
