@@ -3,14 +3,12 @@ import time
 
 # 巡线巡航速度(m/s): 纯直线经行(开环, 不看车道, 无转向校正), 恒速扫过 4 只 animal
 CRUISE_SPEED = 0.20
-
 # 动物识别置信度阈值: 置信度大于此值的 animal 才送大模型
 ANIMAL_CONF = 0.85
 MAX_ANIMALS = 4  # 需识别动物数
 # 触发裁剪的画面中央窗口(|x_c|<=该值): 目标经过画面中央时裁剪最完整, 避免切边缘残框
 CAPTURE_WINDOW = 0.12
 MAX_RUN_M = 0.51  # 兜底经行距离(米): 漏检/大模型失败时也停, 防过站
-MAX_TIME_S = 5.0  # 兜底总时长(秒)
 
 
 def _analyze_loop(car, results):
@@ -63,8 +61,6 @@ def run(car) -> list:
 
     def end():
         if len(results) >= MAX_ANIMALS:
-            return True
-        if time.time() - start > MAX_TIME_S:
             return True
         return car.get_distance() > MAX_RUN_M
 
