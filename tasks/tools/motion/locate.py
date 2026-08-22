@@ -299,9 +299,10 @@ class LocateMixin:
                     out_y = kp_y * (dy - delta_y)
 
                 flag_x = x_count(abs(err_x) < 0.04)
-                flag_y = y_count(abs(dy - delta_y) < 0.02)
                 if delta_y is None:
                     flag_y = True
+                else:
+                    flag_y = y_count(abs(dy - delta_y) < 0.02)
 
                 if flag_x:
                     out_x = 0
