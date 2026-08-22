@@ -7,7 +7,7 @@ LANE_PID = dict(
 )
 
 # 动物识别置信度阈值: 置信度大于此值的 animal 才标记进 animal_list
-ANIMAL_CONF = 0.85
+ANIMAL_CONF = 0.80
 
 def run(car) -> list:
     # 每元素 害/益: 害=0 需击打, 益=1
@@ -20,7 +20,7 @@ def run(car) -> list:
     with car.lane_config(LANE_PID):
         for i in range(4):
             cls_id, label = car.move_to_detection_target(
-                delta_x=0.0, delta_y=None, sort_pos=(0,0),min_score=ANIMAL_CONF
+                delta_x=0.0, delta_y=None, sort_pos=(0,0),lock=True,min_score=ANIMAL_CONF
             )
             time.sleep(0.1)
             if label == "animal":
@@ -33,7 +33,7 @@ def run(car) -> list:
                         car.beep()
                         print(f"第{i+1}个动物分析结果：{res}")
                         animal_list[i] = res
-            car.move_distance([0.2, 0, 0], dis=0.14)   # 阻塞定距
+            car.move_distance([0.2, 0, 0], dis=0.15)   # 阻塞定距
         car.beep()
         car.get_distance(True)
         return animal_list

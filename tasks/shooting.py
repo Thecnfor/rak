@@ -10,19 +10,19 @@ LANE_PID = dict(
     deadzone=0.05,  # da 死区: 直线噪声 ~0.1, 全局 0.0 未启用 -> 削掉
 )
 
-X_C_LIST = [0.36, 0.27, 0.31, 0.29]
+X_C_LIST = [0.36, 0.27, 0.29, 0.29]
 
 # 对齐窗口(宽): move_to_detection_target 只对齐 x_c 距目标站位在该范围内的 animal,
 # 需罩住入场位置, 偏窄会导致找不到候选而对齐空等超时。现场按摄像头视野标定。
 ALIGN_RANGE = 0.8
 # 击倒判定窗口(窄): 站位 x_c 附近找不到 animal 才算击倒, 避免误判远处残骸。
-KNOCK_RANGE = 0.17
+KNOCK_RANGE = 0.15
 
-ANIMAL_CONF = 0.9
+ANIMAL_CONF = 0.8
 
 MAX_SHOTS = 5  # 每个击倒点最多击发次数, 击倒即停
 
-FINAL_ADVANCE_M = 1.4  # 击倒全部害兽后收尾前进到的绝对位移(m, 现场标定)
+FINAL_ADVANCE_M = 1.20  # 击倒全部害兽后收尾前进到的绝对位移(m, 现场标定)
 
 
 def _knocked_down(car, x_c, range_=KNOCK_RANGE):
@@ -72,31 +72,41 @@ def run(car, animal_list=None):  # noqa: E741
     car.arm.set_arm_pose(x=-0.25, y=-0.04)
     with car.lane_config(LANE_PID):
         car.move_to_detection_target(
-            delta_x=hit_x[0] if hit_x else X_C_LIST[0],
+            delta_x=X_C_LIST[0],
             delta_y=None,
             label="animal",
-            sort_pos=(0, 0),
+            sort_pos=(-2, 0),  # 参考点在视野最左侧之外 ⇒ 选中最左侧的 animal
+            lock=True,
             min_score=ANIMAL_CONF,
-        )  # 对齐第一个打击点 (用它的 x_c 选中, 无打击点兜底 X_C_LIST[0])
+        )  # 对齐第一个动物
         knock_count = 0  # 已击倒数
         pos = [0.0]  # 底盘纵向自记账, 起点=对齐 animal_list[0] 处
         for idx, x_c in zip(hit_idx, hit_x):
             _chassis(car, idx * step, pos)
             time.sleep(0.2)
+            car.move_to_detection_target(  # 每次击发前重新对齐(未击倒才走到这)
+                delta_x=x_c,
+                delta_y=None,
+                label="animal",
+                sort_pos=(0.26, 0),
+                lock=True,
+                min_score=ANIMAL_CONF,
+                select_range=ALIGN_RANGE,
+            )
             for _ in range(MAX_SHOTS):  # 每点最多击发 MAX_SHOTS 次, 击倒即停
-                car.move_to_detection_target(  # 每次击发前重新对齐(未击倒才走到这)
-                    delta_x=x_c,
-                    delta_y=None,
-                    label="animal",
-                    sort_pos=(0.17, 0),
-                    lock=True,
-                    min_score=ANIMAL_CONF,
-                    select_range=ALIGN_RANGE,
-                )  # 对齐击打点 (用 x_c 选中该只)
                 time.sleep(0.2)
                 car.beep()
                 car.shooting()
                 time.sleep(0.3)
+                car.move_to_detection_target( 
+                    delta_x=x_c,
+                    delta_y=None,
+                    label="animal",
+                    sort_pos=(0.26, 0),
+                    lock=True,
+                    min_score=ANIMAL_CONF,
+                    select_range=ALIGN_RANGE,
+                ) 
                 if _knocked_down(car, x_c):
                     knock_count += 1
                     print(f"击倒 {knock_count}/{target_count}")
