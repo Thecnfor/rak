@@ -127,10 +127,10 @@ TASK_TRIGGER: Dict[str, Dict] = {
         "type": "vision",
         "labels": ["animal"],  # 识别到 animal 即触发
         "min_score": 0.75,  # 置信度 >=0.6 才算命中
-        "confirm": 3,  # 连续 3 帧命中才确认
+        "confirm": 5,  # 连续 5 帧命中才确认
         "fresh": False,  # 用实时缓存, 最快
         "max_age": 0.1,  # 缓存最多 0.3s 内的检测结果
-        "max_run": 1.5,  # 视觉兜底必填: 2.5m 内没识别到也停, 防过站
+        "max_run": 1.35,  # 视觉兜底必填: 2.5m 内没识别到也停, 防过站
         "time_out": 200.0,  # 20s 没触发强制停
         "start_dist": 1.0,
         "lane": {  # 本路段巡线特调(每任务独立, 跑完自动还原)
@@ -148,11 +148,11 @@ TASK_TRIGGER: Dict[str, Dict] = {
             "water_l2",
             "water_l3",
         ],  # 识别到任一水塔等级即触发
-        "min_score": 0.35,
+        "min_score": 0.55,
         "confirm": 1,
         "fresh": False,
         "max_age": 0.3,
-        "max_run": 2.25,
+        "max_run": 1.8,
         "time_out": 300.0,
         "start_dist": 0.0,
         "lane": {  # 本路段巡线特调(每任务独立, 跑完自动还原)
@@ -171,7 +171,7 @@ TASK_TRIGGER: Dict[str, Dict] = {
         "max_age": 0.1,
         "segments": [
             {
-                "distance": 1.8,
+                "distance": 1.5,
                 "lane": {
                     "kp": 2.5,
                     "kd": 0.0,
@@ -182,7 +182,7 @@ TASK_TRIGGER: Dict[str, Dict] = {
             {
                 "distance": 1.7,
                 "lane": {
-                    "kp": 1.5,
+                    "kp": 1.8,
                     "kd": 0.0,
                     "deadzone": 0.0,
                     "v_forward": 0.3,
