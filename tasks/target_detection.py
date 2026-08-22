@@ -8,6 +8,9 @@ ANIMAL_CONF = 0.85
 MAX_ANIMALS = 4  # 需识别动物数
 # 触发采集的画面中央窗口(|x_c|<=该值): 目标经过画面中央时裁剪最完整, 避免切边缘残框
 CAPTURE_WINDOW = 0.30
+# 对齐第一个(最左)动物的目标 x_c: 与射击 X_C_LIST[0] 一致, 先把车摆到动物基准位,
+# 巡航采集才有固定起点(现场标定)
+ALIGN_X = 0.36
 
 
 def _collect_loop(car, captures, alive):
@@ -59,7 +62,16 @@ def run(car) -> list:
     # 每元素 害/益: 害=0 需击打, 益=1
     # 机械臂位姿一次调好, 全程保持(不再为识别逐只停下来)
     car.arm.set_arm_pose(arm="LEFT", hand="UP")
-    car.arm.set_arm_pose(x=-0.2, y=-0.05)
+    car.arm.set_arm_pose(x=-0.25, y=-0.05)
+    # 对齐第一个(最左)动物(与射击一致): 参考点在视野最左侧之外 ⇒ 选中最左侧的 animal
+    car.move_to_detection_target(
+        delta_x=0.0,
+        delta_y=None,
+        label="animal",
+        sort_pos=(-2, 0),
+        lock=True,
+        min_score=ANIMAL_CONF,
+    )
     captures = []  # 后台采集线程按序写入 (det, 裁剪帧)
     alive = [True]  # 采集线程存活开关(车停后置 False, 线程立即退出)
     th = threading.Thread(target=_collect_loop, args=(car, captures, alive), daemon=True)
