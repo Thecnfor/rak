@@ -31,17 +31,17 @@ CHASSIS_V = [0.10, 0.10, math.pi / 3]  # move_for 速度上限 [前后, 横向, 
 # ----- 水塔识别保底(识别不到等级标时挪车再找) -----
 LOCATE_RETRY = 1.8  # 档1(原停车点)探测时长(秒), 找 water_l* 等级标
 RETRY_FINAL = 0.8  # 档2/3(挪车档)探测时长(秒), 短等快进
-RETRY_BACK = 0.08  # 档2: 后退距离 (m)
-RETRY_FWD = 0.16  # 档3: 前进距离 (m, 回原处再前 0.08)
+RETRY_BACK = 0.10  # 档2: 后退距离 (m)
+RETRY_FWD = 0.20  # 档3: 前进距离 (m, 回原处再前 0.08)
 RETRY_JUMP = (
-    0.52  # 跳塔: 从档3停车位置(原停车点前 0.08m)到第二塔的固定距离 (m, 仅跳塔用)
+    0.50  # 跳塔: 从档3停车位置(原停车点前 0.08m)到第二塔的固定距离 (m, 仅跳塔用)
 )
 
 # ----- 进入任务点后中线对位(correction 拉居中; steer 参数用 cfg.py CORR_THRESHOLD/CORR_WEIGHT) -----
-CENTER_FWD_SPEED = 0.1  # 巡线前进速度 (m/s)
-CENTER_FWD_TIME = 1.5  # 巡线前进时长 (s) ≈ 0.15m
+CENTER_FWD_SPEED = 0.2  # 巡线前进速度 (m/s)
+CENTER_FWD_TIME = 1.0  # 巡线前进时长 (s) ≈ 0.15m
 CENTER_HOLD = 0.2  # 前进到位后停车驻留 (s)
-CENTER_FWD_DIS = 0.15  # 原路回退距离 (m) = 1.5s × 0.1m/s, 回到入口但已居中
+CENTER_FWD_DIS = 0.35  # 原路回退距离 (m) = 1.5s × 0.1m/s, 回到入口但已居中
 
 # ----- 水塔等级标签 → 需搬水块数 -----
 WATER_LABEL = {"water_l1": 1, "water_l2": 2, "water_l3": 3}

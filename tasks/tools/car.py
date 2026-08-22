@@ -287,12 +287,12 @@ class MyCar(MotionMixin, PerceptionMixin, MecanumDriver):
         不阻塞串口总线, 与其他设备(机械臂/底盘/舵机)共享总线时冲突最小。
         """
         while True:
+            if self._end_flag:
+                return
             if not self._stop_flag:
-                if self._end_flag:
-                    return
                 self.key.get_key_async(callback=self._on_key)
                 # print(key_val)
-                time.sleep(0.2)
+            time.sleep(0.2)
 
     def _on_key(self, key_val):
         """按键异步回调(在串口读线程中执行), 键值 3 表示急停。"""

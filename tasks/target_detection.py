@@ -7,7 +7,7 @@ CRUISE_SPEED = 0.20
 ANIMAL_CONF = 0.85
 MAX_ANIMALS = 4  # 需识别动物数
 # 触发采集的画面中央窗口(|x_c|<=该值): 目标经过画面中央时裁剪最完整, 避免切边缘残框
-CAPTURE_WINDOW = 0.12
+CAPTURE_WINDOW = 0.30
 
 
 def _collect_loop(car, captures, alive):
@@ -79,7 +79,7 @@ def run(car) -> list:
         target=_infer_all, args=(car, captures, results), daemon=True
     )
     infer.start()
-    infer.join(timeout=30.0)
+    infer.join(timeout=15.0)
 
     animal_list = list(results) + [1] * (MAX_ANIMALS - len(results))
     print("animal_list =", animal_list)

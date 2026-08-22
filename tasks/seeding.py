@@ -46,9 +46,9 @@ MOVE_V = 0.1  # 底盘平移限速, 降漂移
 # ── 进入任务点后中线对位(巡线居中 → 原路直退) ─────────────────────
 # 巡线前进 3s×0.2m/s ≈ 0.6m 把车拉到道路中间(correction 拉中线), 再原路直退
 # 0.6m 回到入口但已居中。回退用 move_for 相对位移(无世界坐标/无横向/无转向漂移)。
-CENTER_FWD_SPEED = 0.2  # 巡线前进速度 (m/s)
-CENTER_FWD_TIME = 3.0   # 巡线前进时长 (s) ≈ 0.6m
-CENTER_FWD_DIS = 0.6    # 原路直退距离 (m) = 3s × 0.2m/s
+CENTER_FWD_SPEED = 0.25  # 巡线前进速度 (m/s)
+CENTER_FWD_TIME = 2.5   # 巡线前进时长 (s) ≈ 0.6m
+CENTER_FWD_DIS = 0.0    # 原路直退距离 (m) = 3s × 0.2m/s
 
 # ── 摆姿势新轴序(大臂先于 X) ───────────────────────────────────
 # set_arm_pose 是 XY 并行→大臂; 播种两处过渡需要"大臂先摆、X 后动":
@@ -432,6 +432,9 @@ def run(car):
     seen = None
     completed = []
     place_pose = None  # 第1列预对位记住的放苗姿态, 后两列复用
+    # 进入任务点后定位: 先前进 0.4m → 左转 45°(相对当前朝向, 无世界坐标/无横移)
+    car.move_for([0.4, 0.0, 0.0], max_velocities=[0.2, 0.1, 0.1])
+    car.move_for([0.0, 0.0, math.pi / 4], max_velocities=[0.1, 0.1, math.pi / 6])
     # 进入任务点后中线对位: 巡线前进居中(correction 拉中线) → 原路直退。
     # lane 恒速取 v_forward; 低速用温和转向 PID(全局默认 kp 太大, 0.2m/s 会蛇形)。
     print(
