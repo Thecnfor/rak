@@ -98,7 +98,7 @@ def run(car, animal_list=None):  # noqa: E741
                 car.beep()
                 car.shooting()
                 time.sleep(0.3)
-                car.move_to_detection_target( 
+                car.move_to_detection_target(
                     delta_x=x_c,
                     delta_y=None,
                     label="animal",
@@ -106,7 +106,7 @@ def run(car, animal_list=None):  # noqa: E741
                     lock=True,
                     min_score=ANIMAL_CONF,
                     select_range=ALIGN_RANGE,
-                ) 
+                )
                 if _knocked_down(car, x_c):
                     knock_count += 1
                     print(f"击倒 {knock_count}/{target_count}")

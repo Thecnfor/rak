@@ -9,8 +9,8 @@ ANIMAL_CONF = 0.85
 MAX_ANIMALS = 4  # 需识别动物数
 # 触发裁剪的画面中央窗口(|x_c|<=该值): 目标经过画面中央时裁剪最完整, 避免切边缘残框
 CAPTURE_WINDOW = 0.12
-MAX_RUN_M = 1.0  # 兜底经行距离(米): 漏检/大模型失败时也停, 防过站
-MAX_TIME_S = 6.0  # 兜底总时长(秒)
+MAX_RUN_M = 0.51  # 兜底经行距离(米): 漏检/大模型失败时也停, 防过站
+MAX_TIME_S = 5.0  # 兜底总时长(秒)
 
 
 def _analyze_loop(car, results):

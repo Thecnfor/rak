@@ -162,6 +162,11 @@ class Cruiser:
                     )
                 seg = new_lane
                 forward_speed = float(seg.get("v_forward", cfg["speed"]))
+                # 同步更新 lane_base 每 tick 读取的巡线速度, 让 v_forward 段切换立即生效
+                try:
+                    car._lane_speed = forward_speed
+                except Exception:
+                    pass
 
         # 停止判定: 每 tick 都跑 (lane_base 的 end_fuction 会高频调用)
         def _should_stop() -> Tuple[bool, str, Optional[str]]:
@@ -300,8 +305,14 @@ class Cruiser:
                     pass
                 return
             if key == self.host.KEY_EMERGENCY:
-                print(f"=== 巡航急停: {task_name} ===")
+                print(f"=== 巡航急停: {task_name} (回等待态后重新初始化) ===")
                 self.host._emergency = True
+                # 置位"待重新初始化"标志: 回等待态时补做臂复位/里程计清零
+                # (run.py 的 _CompetitionOrchestrator.wait_start 消费)
+                try:
+                    self.host._reinit_pending = True
+                except Exception:
+                    pass
                 try:
                     car._stop_flag = True
                 except Exception:

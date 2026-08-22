@@ -26,6 +26,7 @@ from tasks.orchestrator import Orchestrator
 from tasks.start.trigger_configs import TASK_ORDER
 
 import math
+import os
 import sys
 import time
 
@@ -84,9 +85,10 @@ class _CompetitionOrchestrator(Orchestrator):
         4 = 全量开始   清空上一轮进度，从第 1 个任务跑完整轮
         1 = 跳过任务 1 开始  只跳过任务 run 逻辑, 仍正常巡线到任务点停
         2 = 跳过任务 1、2 开始（暂保留原逻辑, 待他人修改）
-        3 = 重新初始化 蜂鸣+机械臂复位+里程计清零+清空进度，回到开机初始状态
+        3 = 立即停止并重启 run.py(刹停+释放硬件+exec 重跑), 全新 init 回初始状态
 
-    任务运行中沿用 Orchestrator 原语义: 1=跳过当前任务 / 3=停止本轮。
+    3 在按键采集线程里全局拦截, 任何状态(等待/巡航/任务执行中)都立即生效;
+    1 在任务执行中仍是"跳过当前任务"。
     """
 
     KEY_SKIP2 = 2  # 等待态: 跳过前 2 个任务开始
@@ -95,6 +97,8 @@ class _CompetitionOrchestrator(Orchestrator):
         super().__init__(car)
         # 本轮"巡航通过"的任务集合: 正常巡线到任务点停, 只跳过 run(car) 逻辑
         self.run_skip: set = set()
+        # 任务执行/巡航中按 3(急停)后置位: 回到等待态时先补做"重新初始化"
+        self._reinit_pending = False
 
     def _reset_round(self) -> None:
         """清空本轮进度与结果，回到"从未开始"状态(下次按 4/1/2 都是新的一轮)."""
@@ -119,8 +123,78 @@ class _CompetitionOrchestrator(Orchestrator):
             print(f"重新初始化异常: {e}")
         self._reset_round()
 
+    def _restart_process(self) -> None:
+        """按 3 全局急停: 刹停 + 释放硬件 + 关闭全部 fd, 再 exec 同参数重跑。
+
+        任务 run() 里有不查 _stop_flag 的开环动作(move_time/set_velocity_for_duration),
+        光设标志停不住; 直接重启进程才能"立即停一切 + 全新 init 回初始状态"。
+        exec 保持同一 PID, systemd 服务不受影响, 重启后从等待态开始。
+        """
+        print("=== 按 3: 立即停止并重启（回到开机初始状态，像全新的一样）===")
+        try:
+            self.car._stop_flag = True
+            self.car.stop()  # 立即刹停(发零速)
+        except Exception as e:
+            print(f"刹停异常: {e}")
+        try:
+            self.car.close()  # 释放相机/推流/按键线程
+        except Exception as e:
+            print(f"释放硬件异常: {e}")
+        try:
+            # 关掉所有非标准 fd(串口/相机/网络 socket), 避免 exec 后被继承占用
+            os.closerange(3, os.sysconf("SC_OPEN_MAX"))
+        except Exception:
+            pass
+        try:
+            os.execv(
+                sys.executable,
+                [sys.executable, os.path.abspath(__file__)] + sys.argv[1:],
+            )
+        except Exception as e:
+            print(f"重启失败: {e}")
+
+    def _key_loop(self):
+        """全局按键采集: 3 全局急停(任何状态立即重启), 其余键入队给编排器消费."""
+        while self.running:
+            try:
+                event = self._key.read()
+                if event and event <= 4:
+                    if event == self.KEY_EMERGENCY:
+                        # 3: 立即刹停并重启进程(无论等待/巡航/任务中)
+                        self._restart_process()
+                        # exec 失败回退: 3 仍入队, 由等待态/任务监听兜底处理
+                    with self._key_lock:
+                        self._key_queue.append(event)
+            except Exception:
+                pass
+            time.sleep(0.02)
+
+    def _listen_skip(self):
+        """任务执行期间的按键: 1=跳过当前任务, 3=停止本轮并(回等待态后)重新初始化."""
+        while self._skip_listener and not self._skip_listener.is_set():
+            key = self._pop_key()
+            if key == self.KEY_SKIP:
+                print("=== 跳过当前任务 ===")
+                self._skipped = True
+                self.car.stop()
+                return
+            if key == self.KEY_EMERGENCY:
+                print("=== 按 3: 停止本轮, 回到等待态后重新初始化 ===")
+                self._emergency = True
+                self._reinit_pending = True
+                self.car._stop_flag = True
+                self.car.stop()
+                return
+            time.sleep(0.02)
+
     def wait_start(self) -> None:
         """阻塞等待启动按键: 4 全量 / 1 跳过任务1 / 2 跳过任务1、2 / 3 重新初始化."""
+        # 上一轮任务执行/巡航中按过 3 → 进等待态先补做"重新初始化"(像全新开机)
+        if self._reinit_pending:
+            self._reinit_pending = False
+            print("=== 按 3: 重新初始化（回到初始状态，像全新的一样）===")
+            self._reinit()
+            print("重新初始化完成，等待一键启动...")
         print(
             "等待一键启动...（4 全量开始 / 1 跳过任务1开始 "
             "/ 2 跳过任务1、2开始 / 3 重新初始化）"
@@ -163,7 +237,6 @@ def main():
     )  # 初始化(含机械臂与里程计复位) + 比赛模式按键接管
     orch = _CompetitionOrchestrator(car)
     orch.skip = set(SKIP_TASKS)  # 静态跳过: 整个流程不跑这些任务
-
     # 每个任务结束: 钉机械臂位姿 + 重置里程计
     for task_name in TASK_ORDER:
         orch.set_after_hook(task_name, _pin_arm_and_reset)

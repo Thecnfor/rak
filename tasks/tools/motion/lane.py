@@ -118,10 +118,16 @@ class LaneMixin:
               lane_apply_params / lane_restore_params 在巡航中途切段切换参数
               时立即生效 (Cruiser.segments 多段巡航依赖此机制)。
         """
+        # 本次巡线速度: 初始取 speed 参数; 段切换(Cruiser.segments)会更新
+        # _lane_speed, 每 tick 重新读取立即生效 (与 _lane_v_min 同理)
+        self._lane_speed = speed
         while True:
             if self._stop_flag:
                 return
 
+            # 本次巡线速度: 初始取 speed 参数; 段切换(Cruiser.segments)会更新
+            # _lane_speed, 每 tick 重新读取立即生效 (与 _lane_v_min 同理)
+            speed = getattr(self, "_lane_speed", speed)
             v_min = getattr(self, "_lane_v_min", cfg.V_FORWARD)
             v_max = max(speed, v_min)
             corr_threshold = getattr(self, "_corr_threshold", cfg.CORR_THRESHOLD)
@@ -187,8 +193,17 @@ class LaneMixin:
 
         self.lane_base(speed, end_fuction, stop=stop)
 
-    def lane_dis_offset(self, speed, dis_hold, stop=STOP_PARAM,
-                        kp=None, ki=None, kd=None, limits=None, deadzone=None):
+    def lane_dis_offset(
+        self,
+        speed,
+        dis_hold,
+        stop=STOP_PARAM,
+        kp=None,
+        ki=None,
+        kd=None,
+        limits=None,
+        deadzone=None,
+    ):
         """
         车道保持距离偏移方法
 

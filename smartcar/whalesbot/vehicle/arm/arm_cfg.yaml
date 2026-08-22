@@ -25,7 +25,7 @@ horiz_cfg:
     perimeter: 0.032
   pid:
     Kp: 3
-    Ki: 0.001
+    Ki: 0
     Kd: 0
     setpoint: 0
     output_limits:

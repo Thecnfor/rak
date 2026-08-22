@@ -13,7 +13,7 @@ get_realtime_detections), 每条检测结构:
 
 用法:
     python scripts/view_side_detections.py            # 默认后台缓存, 0.2s 刷新
-    python scripts/view_side_detections.py --fresh    # 每帧同步跑一次推理(更即时但更占 GPU)
+    scripts/test_watering_.py    # 每帧同步跑一次推理(更即时但更占 GPU)
     python scripts/view_side_detections.py --label water   # 只看指定 label
     python scripts/view_side_detections.py --score 0.5     # 只显示置信度 >= 0.5
     python scripts/view_side_detections.py --hz 10         # 刷新频率(默认5)

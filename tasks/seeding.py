@@ -53,24 +53,24 @@ FINE_TUNE_MAX = 2           # 最多微调次数
 # ── 分段伺服参数(粗对齐→精对齐, 抓/放分开, 来自现场标定) ─────────────
 # sign 按现场最终确认双表全反(目标在左→该摆向RIGHT、目标在上→该左伸/右缩),
 # 现用值: PICK(-1,1), PLACE(-1,-1)。
-# 粗对齐: 大增益(0.85/0.65)快速把目标拉近 + 大死区(0.08)容忍误差, 5s 超时,
+# 粗对齐: 大增益(0.65/0.65)快速把目标拉近 + 大死区(0.08)容忍误差, 5s 超时,
 #         settle=3 帧即算粗到位, lock=5 帧首次锁定。
-# 精对齐: 小增益(0.30/0.20)小死区(0.02)精确收敛, 5s 超时, settle=4 帧,
+# 精对齐: 小增益(0.35/0.25)小死区(0.02)精确收敛, 5s 超时, settle=4 帧,
 #         lock=1 不重新累计锁定帧, 直接续追粗对齐的目标(lock_px, 不重新选)。
 PICK_COARSE = dict(
-    gains=(0.85, 0.65), sign=(-1.0, 1.0), deadzone=0.08, timeout=5.0,
+    gains=(0.65, 0.65), sign=(-1.0, 1.0), deadzone=0.08, timeout=5.0,
     settle=3, lock=5, debug=True,
 )
 PICK_FINE = dict(
-    gains=(0.30, 0.20), sign=(-1.0, 1.0), deadzone=0.02, timeout=5.0,
+    gains=(0.35, 0.25), sign=(-1.0, 1.0), deadzone=0.02, timeout=5.0,
     settle=4, lock=1, debug=True,
 )
 PLACE_COARSE = dict(
-    gains=(0.85, 0.65), sign=(-1.0, -1.0), deadzone=0.08, timeout=5.0,
+    gains=(0.65, 0.65), sign=(-1.0, -1.0), deadzone=0.08, timeout=5.0,
     settle=3, lock=5, debug=True,
 )
 PLACE_FINE = dict(
-    gains=(0.30, 0.20), sign=(-1.0, -1.0), deadzone=0.02, timeout=5.0,
+    gains=(0.35, 0.25), sign=(-1.0, -1.0), deadzone=0.02, timeout=5.0,
     settle=4, lock=1, debug=True,
 )
 

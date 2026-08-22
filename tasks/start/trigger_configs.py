@@ -66,10 +66,10 @@ TASK_TRIGGER: Dict[str, Dict] = {
         "time_out": 0.0,  # 兜底: 超时(秒)强制停, 0=不启用
         "start_dist": 0.0,  # 先行驶多少米后才开始检查触发条件 (0=一开始就检查)
         "lane": {  # 本路段巡线特调(每任务独立, 跑完自动还原)
-            "kp": 2.0,  # 转向 PID Kp: 弯道转不过来加大 / 直道蛇形减小
+            "kp": 0.8,  # 转向 PID Kp: 弯道转不过来加大 / 直道蛇形减小
             "kd": 0.0,  # 转向 PID Kd(阻尼): 摆动大加大 / 转向迟钝减小
             "deadzone": 0.0,  # da 进 PID 前死区: 直线仍抖加大
-            "v_forward": 0.8,  # 恒速前进速度(m/s), 不填则回落公共默认 speed 0.3
+            "v_forward": 0.3,  # 恒速前进速度(m/s), 不填则回落公共默认 speed 0.3
         },
     },
     "ordering": {
@@ -103,7 +103,7 @@ TASK_TRIGGER: Dict[str, Dict] = {
                 },
             },
             {
-                "distance": 1.53,
+                "distance": 1.55,
                 "lane": {
                     "kp": 1.8,
                     "kd": 0.0,
@@ -127,17 +127,17 @@ TASK_TRIGGER: Dict[str, Dict] = {
         "type": "vision",
         "labels": ["animal"],  # 识别到 animal 即触发
         "min_score": 0.75,  # 置信度 >=0.6 才算命中
-        "confirm": 1,  # 连续 3 帧命中才确认
+        "confirm": 3,  # 连续 3 帧命中才确认
         "fresh": False,  # 用实时缓存, 最快
         "max_age": 0.1,  # 缓存最多 0.3s 内的检测结果
-        "max_run": 1.5,  # 视觉兜底必填: 2.5m 内没识别到也停, 防过站
+        "max_run": 1.35,  # 视觉兜底必填: 2.5m 内没识别到也停, 防过站
         "time_out": 200.0,  # 20s 没触发强制停
         "start_dist": 1.0,
         "lane": {  # 本路段巡线特调(每任务独立, 跑完自动还原)
-            "kp": 2.5,  # 转向 PID Kp: 弯道转不过来加大 / 直道蛇形减小
+            "kp": 2.2,  # 转向 PID Kp: 弯道转不过来加大 / 直道蛇形减小
             "kd": 0.0,  # 转向 PID Kd(阻尼): 摆动大加大 / 转向迟钝减小
             "deadzone": 0.0,  # da 进 PID 前死区: 直线仍抖加大
-            "v_forward": 0.6,  # 恒速前进速度(m/s), 不填则回落公共默认 speed 0.3
+            "v_forward": 0.4,  # 恒速前进速度(m/s), 不填则回落公共默认 speed 0.3
         },
     },
     "watering": {
@@ -156,7 +156,7 @@ TASK_TRIGGER: Dict[str, Dict] = {
         "time_out": 300.0,
         "start_dist": 0.0,
         "lane": {  # 本路段巡线特调(每任务独立, 跑完自动还原)
-            "kp": 1.1,
+            "kp": 1.4,
             "kd": 0.0,
             "deadzone": 0.0,
             "v_forward": 0.5,
@@ -171,7 +171,7 @@ TASK_TRIGGER: Dict[str, Dict] = {
         "max_age": 0.1,
         "segments": [
             {
-                "distance": 1.5,
+                "distance": 1.8,
                 "lane": {
                     "kp": 2.5,
                     "kd": 0.0,
@@ -180,18 +180,18 @@ TASK_TRIGGER: Dict[str, Dict] = {
                 },
             },
             {
-                "distance": 1.5,
+                "distance": 1.7,
                 "lane": {
-                    "kp": 2,
+                    "kp": 1.5,
                     "kd": 0.0,
                     "deadzone": 0.0,
                     "v_forward": 0.3,
                 },
             },
         ],
-        "max_run": 3.0,
+        "max_run": 2.7,
         "time_out": 300.0,
-        "start_dist": 2.2,
+        "start_dist": 2.4,
     },
     "harvesting": {
         "type": "vision",
@@ -239,7 +239,7 @@ TASK_TRIGGER: Dict[str, Dict] = {
         "max_age": 0.3,
         "segments": [
             {
-                "distance": 1.0,
+                "distance": 1.5,
                 "lane": {
                     "kp": 2.5,
                     "kd": 0.0,
