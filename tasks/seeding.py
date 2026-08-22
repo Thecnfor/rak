@@ -43,6 +43,13 @@ PLACE_Y, PLACE_LIFT_Y = -0.025, -0.15  # 放苗微降 / 释放后一步抬到 -0
 
 MOVE_V = 0.1  # 底盘平移限速, 降漂移
 
+# ── 摆姿势新轴序(大臂先于 X) ───────────────────────────────────
+# set_arm_pose 是 XY 并行→大臂; 播种两处过渡需要"大臂先摆、X 后动":
+#   ① 预对位/放苗后→抓取姿势: 大臂从槽位侧摆回抓取侧, 再动 X(防横伸扫过槽位)
+#   ② 抓取后→放苗姿势: 先抬 Y, 再摆大臂到放苗侧, 再动 X(防带苗扫过育苗架)
+# 大臂舵机无位置回读, 保留 set_arm_pose 的双发兜底 + 到位等待。
+ARM_SWING_WAIT = 0.8  # 大臂摆到位等待(秒), 现场可调
+
 # ── 底盘纵向粗调: 目标画面 cx 与预期差过大 → 车前后微调再对齐 ─────────
 FINE_TUNE_THRESHOLD = 0.4   # cx 偏差超此值认为底盘没到位(停靠点太前/太后)
 FINE_TUNE_STEP = 0.09       # 单次前后微调距离 (m)
@@ -176,6 +183,27 @@ def _ensure_hand(car, target=-20.0, retries=2, settle=0.1):
     for _ in range(retries):
         car.arm.set_hand_angle(target)
         time.sleep(settle)
+
+
+def _arm_pose_seq(car, x=None, y=None, arm=None, hand=None, lift_y_first=False):
+    """摆姿势(新轴序): [抬Y→] 转大臂 → 动X → 末端(异步).
+
+    取代 set_arm_pose(XY并行→大臂): 大臂先摆、X 后动, 避免带苗扫过育苗架 /
+    机械臂在错误朝向时横伸。大臂保留双发兜底(总线竞争, 同 set_arm_pose) +
+    ARM_SWING_WAIT 等舵机摆到位后再动 X。lift_y_first=True 时先 move_y_position(y)。
+    """
+    if lift_y_first and y is not None:
+        car.arm.move_y_position(y)          # ① 先抬Y
+    if arm is not None:
+        car.arm.set_arm_angle(arm)          # ② 转大臂
+        time.sleep(0.3)
+        car.arm.set_arm_angle(arm)          #    双发兜底(防总线竞争丢帧)
+        if ARM_SWING_WAIT > 0:
+            time.sleep(ARM_SWING_WAIT)      #    等大臂真正摆到位再动X
+    if x is not None:
+        car.arm.move_x_position(x)          # ③ 再动X
+    if hand is not None:
+        car.arm.set_hand_angle_async(hand)  # 末端异步, 不阻塞
 
 
 def _align_staged(car, label, cx, cy, coarse, fine, prefer_left=False,
@@ -396,9 +424,9 @@ def run(car):
         # 第1列: 先预对位槽标记, 记住放苗姿势(横向/大臂姿势全程通用, 只需一次)
         if place_pose is None:
             place_pose = _pre_align(car, pos)
-        # 摆抓取姿势
-        car.arm.set_arm_pose(
-            PICK_POSE["x"], PICK_POSE["y"], PICK_POSE["arm"], PICK_POSE["hand"]
+        # 摆抓取姿势(新轴序: 先转大臂再动X; y 已是 -0.15 无需动)
+        _arm_pose_seq(
+            car, PICK_POSE["x"], PICK_POSE["y"], PICK_POSE["arm"], PICK_POSE["hand"]
         )
         print(f"已经移动到了PICK_POSE")
         # 扫描本列 cylinder; 没有就用剩余 label 兜底
@@ -421,7 +449,8 @@ def run(car):
         # 放苗: 底盘到槽列 + 直接用第1列记住的放苗姿势(不再现场伺服)
         _chassis(car, SLOT[TARGET_SLOT[label]], pos)
         px, py, parm, phand = place_pose
-        car.arm.set_arm_pose(px, py, parm, phand)
+        # 放苗(新轴序: 先抬Y → 转大臂 → 动X)
+        _arm_pose_seq(car, px, py, parm, phand, lift_y_first=True)
         _place(car)
     # 全部搬完 → 回到 s3 (最后一个抓取位置, SOURCE[3]=0.30m)
     print(f"[播种] 全部搬完, 回到 s3 (SOURCE[3]=0.30m)")
