@@ -449,7 +449,10 @@ class ArmMotion:
             time_remain = time_end - time.time()
             # 超时处理
             if time_remain < -3:
-                logger.warning("Timeout")
+                logger.warning(
+                    f"Timeout: target x={x_pos:.3f} y={y_pos:.3f}, "
+                    f"now x={self.x_pose_now:.3f} y={self.y_pose_now:.3f}"
+                )
                 # 超时停止
                 self.x_speed(0)
                 self.y_speed(0)
