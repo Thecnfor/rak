@@ -322,40 +322,46 @@ def _pre_align(car, pos=None):
     """第1列预对位: 摆放苗姿势并伺服对齐槽标记, 记住此刻 4 轴放苗姿态.
 
     两段对齐(顺序固定, 后段不依赖前段成功, 都完赛优先):
-      1) 底盘对齐: 滑轨放 CHASSIS_ALIGN_X(-0.25) 外侧姿态, 车前后/左右横移,
-         把 cylinder_set 槽标记移到画面中心(失败/超时也继续, 只为粗对准)
+      1) 底盘对齐: 滑轨放 CHASSIS_ALIGN_X(-0.26) 外侧姿态, move_to_detection_target
+         车前后 PID + 滑轨跟随, 把 cylinder_set 槽标记移到吸嘴 setpoint(失败/超时也继续)
       2) 机械臂对齐: 把滑轨摆回 PLACE_POSE(-0.2) 基准, 大臂+滑轨把吸嘴
          精确送到槽标记正上方(arm_servo_align)
     放苗的横向/大臂姿势全程通用(槽的横向位置不随筒尺寸变), 所以只做一次,
     后两列放苗直接复用。返回 (x, y, arm, hand) 四自由度姿态。
     预对位超时用 PLACE_POSE 默认值兜底, 不阻塞(完赛优先)。
     """
-    # # ① 底盘对齐姿态: 滑轨放外侧, 视野敞开便于检测槽标记
-    # car.arm.set_arm_pose(
-    #     CHASSIS_ALIGN_X, PLACE_POSE["y"], PLACE_POSE["arm"], PLACE_POSE["hand"]
-    # )
-    # # 手爪: 大臂摆位+滑轨连发瞬间首条 hand 命令易被总线竞争吞掉/未到位
-    # # (实测底盘对齐阶段手爪停在 -90)。等臂稳后重发向下并给舵机到位时间。
-    # time.sleep(0.5)
-    # car.arm.set_hand_angle(PLACE_POSE["hand"])
-    # time.sleep(0.5)
-    # # ── 底盘对齐(新: sign 按大臂档位自动定 sign_y, 横向符号现场探针自证 sign_x,
-    # #               kp/deadband/v_min 用 locate 新默认; 镜像 test_chassis_align.py --align) ──
-    # # 期望点 cx/cy 取吸嘴 setpoint(MARKER_NOZZLE), decouple_xy=True(默认), 多目标锁最左
-    # ok_chassis = car.chassis_align(MARKER, cx=MARKER_NOZZLE[0], cy=MARKER_NOZZLE[1],
-    #                                prefer_left=True, probe_sign_x=True,
-    #                                timeout=10.0)  # 车动, 槽标记居中; 超时/未对齐也继续预对位
-    # # 底盘对齐轮系高频占总线, 手爪可能又被挤回, 补发一次
-    # car.arm.set_hand_angle(PLACE_POSE["hand"])
-    # print(f"底盘对齐槽标记: {'成功' if ok_chassis else '超时/未对齐, 继续预对位'}")
+    # ① 底盘对齐姿态: 滑轨放外侧, 视野敞开便于检测槽标记
+    car.arm.set_arm_pose(
+        CHASSIS_ALIGN_X, PLACE_POSE["y"], PLACE_POSE["arm"], PLACE_POSE["hand"]
+    )
+    # 手爪: 大臂摆位+滑轨连发瞬间首条 hand 命令易被总线竞争吞掉/未到位
+    # (实测底盘对齐阶段手爪停在 -90)。等臂稳后重发向下并给舵机到位时间。
+    time.sleep(0.5)
+    car.arm.set_hand_angle(PLACE_POSE["hand"])
+    time.sleep(0.5)
+    # ── 底盘对齐(老牌 move_to_detection_target 替换 chassis_align): 车前后 PID +
+    #    滑轨跟随, 期望点 delta_x/delta_y 取吸嘴 setpoint(MARKER_NOZZLE)。
+    #    符号按 arm.side 定(播种放苗侧=LEFT: 目标右→车前进, kp 正号), 先确保;
+    #    多目标锁最左(sort_pos=(-2,0), 同原 prefer_left), lock 续追不换目标。
+    #    超时/未对齐也继续预对位(完赛优先)。 ──
+    car.arm.switch_side("LEFT")
+    _ret = car.move_to_detection_target(
+        delta_x=MARKER_NOZZLE[0],
+        delta_y=MARKER_NOZZLE[1],
+        label=MARKER,
+        time_out=10.0,
+        sort_pos=(-2, 0),
+        lock=True,
+        min_score=SCORE_THRESHOLD,
+    )
+    # 底盘对齐轮系高频占总线, 手爪可能又被挤回, 补发一次
+    car.arm.set_hand_angle(PLACE_POSE["hand"])
+    print(f"底盘对齐槽标记: {_ret}")
     # ② 机械臂预对位: 车已粗对准, 把滑轨摆回 -0.2 基准再让臂精对位
     car.arm.set_arm_pose(
         PLACE_POSE["x"], PLACE_POSE["y"], PLACE_POSE["arm"], PLACE_POSE["hand"]
     )
     _ensure_hand(car)  # 视觉对齐前: 强制末端到位
-    # 底盘纵向粗调(仅 cylinder_set 适用): 槽标记画面 cx 偏差过大 → 车前后微调再对齐
-    if pos is not None:
-        _chassis_fine_tune(car, MARKER, MARKER_NOZZLE[0], pos)
     # 左臂对齐 cylinder_set(放苗预对位): 分段粗→精对齐, 锁定画面靠左的目标
     ok = _align_staged(
         car, MARKER, *MARKER_NOZZLE, coarse=PLACE_COARSE, fine=PLACE_FINE,
