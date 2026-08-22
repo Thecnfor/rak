@@ -8,7 +8,6 @@ ANIMAL_CONF = 0.85
 MAX_ANIMALS = 4  # 需识别动物数
 # 触发采集的画面中央窗口(|x_c|<=该值): 目标经过画面中央时裁剪最完整, 避免切边缘残框
 CAPTURE_WINDOW = 0.12
-MAX_RUN_M = 0.51  # 兜底经行距离(米): 漏检时也停, 防过站
 
 
 def _collect_loop(car, captures, alive):
@@ -61,19 +60,15 @@ def run(car) -> list:
     # 机械臂位姿一次调好, 全程保持(不再为识别逐只停下来)
     car.arm.set_arm_pose(arm="LEFT", hand="UP")
     car.arm.set_arm_pose(x=-0.2, y=-0.05)
-    start_dis = car.get_distance(True)  # 记录起步里程(累计值, 非 0): 兜底距离按相对量算
-
     captures = []  # 后台采集线程按序写入 (det, 裁剪帧)
     alive = [True]  # 采集线程存活开关(车停后置 False, 线程立即退出)
     th = threading.Thread(target=_collect_loop, args=(car, captures, alive), daemon=True)
     th.start()
 
     def end():
-        if len(captures) >= MAX_ANIMALS:  # 采集满 4 只即停, 不用等大模型
-            return True
-        return car.get_distance() - start_dis > MAX_RUN_M  # 相对起步里程, 防累计值误判
+        return len(captures) >= MAX_ANIMALS  # 采集满 4 只即停, 不用等大模型
 
-    car.move_base([CRUISE_SPEED, 0, 0], end)  # 纯直线经行(开环, 不看车道), 采集完/到距即停
+    car.move_base([CRUISE_SPEED, 0, 0], end)  # 纯直线经行(开环, 不看车道), 采集满 4 只即停
 
     alive[0] = False
     th.join(timeout=2.0)
@@ -88,5 +83,4 @@ def run(car) -> list:
 
     animal_list = list(results) + [1] * (MAX_ANIMALS - len(results))
     print("animal_list =", animal_list)
-    car.get_distance(True)
     return animal_list
