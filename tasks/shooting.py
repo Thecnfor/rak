@@ -16,11 +16,11 @@ ALIGN_RANGE = 0.8
 # 击倒判定窗口(窄): 站位 x_c 附近找不到 animal 才算击倒, 避免误判远处残骸。
 KNOCK_RANGE = 0.17
 
-ANIMAL_CONF = 0.7
+ANIMAL_CONF = 0.9
 
 MAX_SHOTS = 5  # 每个击倒点最多击发次数, 击倒即停
 
-FINAL_ADVANCE_M = 1.5  # 击倒 2 个后收尾前进到的绝对位移(m, 现场标定)
+FINAL_ADVANCE_M = 1.4  # 击倒全部害兽后收尾前进到的绝对位移(m, 现场标定)
 
 def _knocked_down(car, x_c, range_=KNOCK_RANGE):
     """击倒判定: 站位 x_c 附近找不到 animal ⇒ 已击倒."""
@@ -57,14 +57,15 @@ def run(car, animal_list=None):  # noqa: E741
         if value == 0:  # 遇到需要打击的点
             hit_idx.append(idx)
             hit_x.append(x_c)  # 记录该击打点动物的 x_c
+    target_count = len(hit_idx)  # 需击倒数 = animal_list 中害(0)的数量
 
     # 射击任务
     car.arm.set_arm_pose(arm="LEFT", hand="UP")
     car.arm.set_arm_pose(x=-0.25, y=-0.04)
     with car.lane_config(LANE_PID):
         car.move_to_detection_target(
-                delta_x=x_c, delta_y=None,label="animal",sort_pos=(0, 0),
-                min_score=ANIMAL_CONF)  # 对齐 animal_list[0] (用它的 x_c 选中)
+                delta_x=X_C_LIST[0], delta_y=None,label="animal",sort_pos=(0, 0),
+                min_score=ANIMAL_CONF)  # 起步对齐用 X_C_LIST[0]
         knock_count = 0  # 已击倒数
         pos = [0.0]  # 底盘纵向自记账, 起点=对齐 animal_list[0] 处
         for idx, x_c in zip(hit_idx, hit_x):
@@ -80,10 +81,10 @@ def run(car, animal_list=None):  # noqa: E741
                 time.sleep(0.3)
                 if _knocked_down(car, x_c):
                     knock_count += 1
-                    print(f"击倒 {knock_count}/2")
+                    print(f"击倒 {knock_count}/{target_count}")
                     break
             time.sleep(0.3)
-            if knock_count >= 2:  # 击倒 2 个后只向前移动到绝对位移 1.5m
+            if knock_count >= target_count:  # 击倒全部害兽后只向前移动到绝对位移 1.3m
                 _chassis(car, FINAL_ADVANCE_M, pos)
-                print(f"[射击] 击倒 2 个, 前进到绝对位移 {FINAL_ADVANCE_M:.1f}m 停")
+                print(f"[射击] 击倒 {target_count} 个, 前进到绝对位移 {FINAL_ADVANCE_M:.1f}m 停")
                 break
