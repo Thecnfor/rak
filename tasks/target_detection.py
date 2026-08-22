@@ -7,7 +7,7 @@ CRUISE_SPEED = 0.20
 ANIMAL_CONF = 0.85
 MAX_ANIMALS = 4  # 需识别动物数
 # 触发采集的画面中央窗口(|x_c|<=该值): 目标经过画面中央时裁剪最完整, 避免切边缘残框
-CAPTURE_WINDOW = 0.30
+CAPTURE_WINDOW = 0.20
 # 对齐第一个(最左)动物的目标 x_c: 与射击 X_C_LIST[0] 一致, 先把车摆到动物基准位,
 # 巡航采集才有固定起点(现场标定)
 ALIGN_X = 0.36
@@ -62,7 +62,7 @@ def run(car) -> list:
     # 每元素 害/益: 害=0 需击打, 益=1
     # 机械臂位姿一次调好, 全程保持(不再为识别逐只停下来)
     car.arm.set_arm_pose(arm="LEFT", hand="UP")
-    car.arm.set_arm_pose(x=-0.25, y=-0.05)
+    car.arm.set_arm_pose(x=-0.15, y=-0.05)
     # 对齐第一个(最左)动物(与射击一致): 参考点在视野最左侧之外 ⇒ 选中最左侧的 animal
     car.move_to_detection_target(
         delta_x=0.0,
