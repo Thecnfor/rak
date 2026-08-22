@@ -43,6 +43,13 @@ PLACE_Y, PLACE_LIFT_Y = -0.025, -0.15  # 放苗微降 / 释放后一步抬到 -0
 
 MOVE_V = 0.1  # 底盘平移限速, 降漂移
 
+# ── 进入任务点后中线对位(巡线居中 → 原路直退) ─────────────────────
+# 巡线前进 3s×0.2m/s ≈ 0.6m 把车拉到道路中间(correction 拉中线), 再原路直退
+# 0.6m 回到入口但已居中。回退用 move_for 相对位移(无世界坐标/无横向/无转向漂移)。
+CENTER_FWD_SPEED = 0.2  # 巡线前进速度 (m/s)
+CENTER_FWD_TIME = 3.0   # 巡线前进时长 (s) ≈ 0.6m
+CENTER_FWD_DIS = 0.6    # 原路直退距离 (m) = 3s × 0.2m/s
+
 # ── 摆姿势新轴序(大臂先于 X) ───────────────────────────────────
 # set_arm_pose 是 XY 并行→大臂; 播种两处过渡需要"大臂先摆、X 后动":
 #   ① 预对位/放苗后→抓取姿势: 大臂从槽位侧摆回抓取侧, 再动 X(防横伸扫过槽位)
@@ -425,6 +432,22 @@ def run(car):
     seen = None
     completed = []
     place_pose = None  # 第1列预对位记住的放苗姿态, 后两列复用
+    # 进入任务点后中线对位: 巡线前进居中(correction 拉中线) → 原路直退。
+    # lane 恒速取 v_forward; 低速用温和转向 PID(全局默认 kp 太大, 0.2m/s 会蛇形)。
+    print(
+        f"\n===== 中线对位: 巡线前进 {CENTER_FWD_TIME}s ({CENTER_FWD_SPEED}m/s) ====="
+    )
+    with car.lane_config(
+        dict(
+            kp=1.0,  # 低速专用转向 PID
+            v_forward=CENTER_FWD_SPEED,  # 真按 0.2m/s 恒速
+            corr_threshold=0.05,  # 中线叠加防抖阈值抬高
+            corr_weight=0.2,  # 中线叠加强度减弱
+        )
+    ):
+        car.lane_time(speed=CENTER_FWD_SPEED, time_dur=CENTER_FWD_TIME)
+    print(f"===== 原路直退 {CENTER_FWD_DIS}m =====")
+    car.move_for([-CENTER_FWD_DIS, 0, 0], max_velocities=[MOVE_V, MOVE_V, math.pi / 3])
     for col in (1, 2, 3):
         _chassis(car, SOURCE[col], pos)
         # 第1列: 先预对位槽标记, 记住放苗姿势(横向/大臂姿势全程通用, 只需一次)
